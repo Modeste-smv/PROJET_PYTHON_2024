@@ -61,7 +61,7 @@ def process_expirations(symbols, min_date=None, max_date=None):
             symbol_data['expiration_date'] = pd.to_datetime(expiration_date)
 
             # Sélection des colonnes d'intérêt
-            symbol_data = symbol_data[['contractSymbol', 'impliedVolatility', 'strike', 'bid', 'ask', 'ticker', 'expiration_date', 'optionType', 'lastPrice']]
+            symbol_data = symbol_data[['ticker','impliedVolatility', 'strike', 'bid', 'ask',  'expiration_date', 'optionType', 'lastPrice']]
 
             # Conversion des colonnes numériques
             numeric_cols = ['strike', 'bid', 'ask']
