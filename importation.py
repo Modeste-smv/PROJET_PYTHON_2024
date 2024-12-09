@@ -78,10 +78,3 @@ def process_expirations(symbols, expiration_dates=None):
 
     return data
 
-
-# Liste des symboles à traiter
-symbols = ['AAPL', 'MSFT', 'GOOGL', 'XOM']
-
-
-# Appel de la fonction avec les dates d'expiration spécifiées
-df_options = process_expirations(symbols)
