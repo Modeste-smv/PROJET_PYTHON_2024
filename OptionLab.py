@@ -161,6 +161,26 @@ def donnees():
             st.success(f"{len(data)} lignes récupérées.")
             st.dataframe(data)
 
+            # Connexion à la base de données
+            conn = sqlite3.connect('options_data.db')
+            cursor = conn.cursor()
+
+            # Vider les tables Ticker et Options
+            cursor.execute("DELETE FROM Options")
+            cursor.execute("DELETE FROM Ticker")
+            conn.commit()
+
+            # Insérer les nouveaux symboles
+            unique_symbols = data['ticker'].unique()
+            for sym in unique_symbols:
+                cursor.execute("INSERT INTO Ticker (Symbol) VALUES (?)", (sym,))
+            conn.commit()
+
+            # Insérer les données dans Options
+            data.to_sql('Options', conn, if_exists='append', index=False)
+
+            st.success("Les données ont été insérées dans la base de données (base vidée avant insertion).")
+            conn.close()
 
 def pricing():
     st.title('📈 Pricing')
