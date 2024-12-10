@@ -153,7 +153,6 @@ def donnees():
 
         st.write("Récupération des données en cours...")
         data = process_expirations(symbols, min_date=min_date, max_date=max_date)
-
         if data.empty:
             st.warning("Aucune donnée disponible pour les symboles et la plage de dates fournie.")
         else:
