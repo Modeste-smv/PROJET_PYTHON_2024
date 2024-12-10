@@ -1,5 +1,7 @@
 import streamlit as st
 import sqlite3
+import datetime
+from importation import process_expirations
 
 
 st.set_page_config(layout="wide")
@@ -93,7 +95,7 @@ page_bg_image = """
 st.markdown(page_bg_image, unsafe_allow_html=True)
 
 # Afficher l'image du logo dans la section de l'en-tête de la sidebar
-st.logo("media/logo_lcl.png")
+st.logo("image.png")
 
 # Initialiser l'état de la page actuelle si nécessaire
 if 'current_page' not in st.session_state:
@@ -127,12 +129,9 @@ def accueil():
     st.title('🏠 Accueil')
     st.write("Bienvenue dans l'application de pricing des options !")
 
-import streamlit as st
-import datetime
-from importation import process_expirations  # Assurez-vous que votre fonction modifiée s'appelle ainsi
 
 def donnees():
-    st.title('💾 Données')
+    st.title('Données')
     st.write("Veuillez saisir les symboles (séparés par des virgules). Exemple : AAPL, MSFT, GOOGL")
 
     # Champ pour saisir les symboles
