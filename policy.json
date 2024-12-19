@@ -1,0 +1,19 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+     {
+      "Effect": "Allow",
+      "Action": [
+       "s3:*"
+      ],
+      "Resource": [
+       "arn:aws:s3:::modestesmv",
+       "arn:aws:s3:::modestesmv/*",
+        "arn:aws:s3:::enzotouak",
+       "arn:aws:s3:::enzotouak/*"
+      ]
+     }
+    ]
+  }
+
+MC_HOST_s3=https://$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY:@minio.lab.sspcloud.fr
