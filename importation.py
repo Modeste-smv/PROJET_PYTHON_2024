@@ -85,19 +85,3 @@ def process_expirations(symbols, min_date=None, max_date=None):
 
 
 data = process_expirations(["AAPL"], min_date=None, max_date=None)
-
-
-import os
-import s3fs
-
-fs = s3fs.S3FileSystem(
-    client_kwargs={'endpoint_url': 'https://'+'minio.lab.sspcloud.fr'},
-    key = os.environ["AWS_ACCESS_KEY_ID"], 
-    secret = os.environ["AWS_SECRET_ACCESS_KEY"], 
-)
-
-
-print(fs.secret)
-print(fs.key)
-# Enregistrer le DataFrame dans un fichier Parquet
-data.to_parquet("modestesmv/database.parquet", filesystem=fs)

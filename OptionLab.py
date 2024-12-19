@@ -3,7 +3,44 @@ import sqlite3
 import datetime
 import pandas as pd
 from importation import process_expirations
+import math
+import scipy.stats as si
+from scipy.stats import norm
+import numpy as np
 
+def monte_carlo_option_price(S, K, T, r, sigma, option_type='C', num_simulations=10000):
+    """
+    Calcule la valeur théorique d'une option selon la méthode de Monte Carlo.
+
+    Paramètres:
+    - S : Prix actuel du sous-jacent
+    - K : Prix d'exercice (strike price)
+    - T : Temps jusqu'à expiration (en années)
+    - r : Taux sans risque
+    - sigma : Volatilité implicite
+    - option_type : 'C' pour Call, 'P' pour Put
+    - num_simulations : Nombre de simulations Monte Carlo
+
+    Retourne la valeur théorique de l'option calculée via Monte Carlo.
+    """
+    dt = T / 252  # Nombre de jours de trading par an
+    discount_factor = np.exp(-r * T)  # Facteur de décote
+    
+    # Générer les chemins simulés
+    simulated_prices = np.zeros(num_simulations)
+    for i in range(num_simulations):
+        price_path = S
+        for t in range(int(T / dt)):
+            price_path *= np.exp((r - 0.5 * sigma ** 2) * dt + sigma * np.sqrt(dt) * np.random.normal())
+        simulated_prices[i] = price_path
+    
+    # Calculer la valeur de l'option
+    if option_type == 'C':
+        option_values = np.maximum(simulated_prices - K, 0)  # Call option payoff
+    elif option_type == 'P':
+        option_values = np.maximum(K - simulated_prices, 0)  # Put option payoff
+    
+    return discount_factor * np.mean(option_values)
 
 st.set_page_config(layout="wide")
 # Définir les styles CSS pour la sidebar
@@ -92,10 +129,7 @@ page_bg_image = """
 </style>
 """
 
-
 st.markdown(page_bg_image, unsafe_allow_html=True)
-
-# Afficher l'image du logo dans la section de l'en-tête de la sidebar
 st.logo("image.png")
 
 # Initialiser l'état de la page actuelle si nécessaire
@@ -121,33 +155,23 @@ if st.sidebar.button('❓ Aide', key='aide'):
 # Fonction pour obtenir la page actuelle
 def get_current_page():
     return st.session_state.current_page
-# Fonction pour obtenir la page actuelle
-def get_current_page():
-    return st.session_state.current_page
 
-# Définition des fonctions pour chaque page
 def accueil():
     st.title('🏠 Accueil')
     st.write("Bienvenue dans l'application de pricing des options !")
-
 
 def donnees():
     st.title('Données')
     st.write("Veuillez saisir les symboles (séparés par des virgules). Exemple : AAPL, MSFT, GOOGL")
 
-    # Champ pour saisir les symboles
     symbol_input = st.text_input("Symboles", value="AAPL")
     symbols = [sym.strip() for sym in symbol_input.split(",") if sym.strip()]
 
     st.write("Optionnel : Sélectionnez une plage de dates (min et max) pour filtrer les dates d'expiration disponibles.")
-    # Date minimale
     min_date = st.date_input("Date minimale", value=None)
-    # Date maximale
     max_date = st.date_input("Date maximale", value=None)
 
-    # Bouton pour lancer l'importation
     if st.button("Importer les données"):
-
         if not symbols:
             st.warning("Veuillez saisir au moins un symbole.")
             return
@@ -159,138 +183,111 @@ def donnees():
         else:
             st.success(f"{len(data)} lignes récupérées.")
             st.dataframe(data)
+            st.session_state['options_data'] = data
+            st.session_state['symbols'] = symbols
 
-            # Connexion à la base de données
             conn = sqlite3.connect('options_data.db')
             cursor = conn.cursor()
-
-            # Vider les tables Ticker et Options
             cursor.execute("DELETE FROM Options")
             cursor.execute("DELETE FROM Ticker")
             conn.commit()
 
-            # Insérer les nouveaux symboles
             unique_symbols = data['ticker'].unique()
             for sym in unique_symbols:
                 cursor.execute("INSERT INTO Ticker (Symbol) VALUES (?)", (sym,))
             conn.commit()
 
-            # Insérer les données dans Options
             data.to_sql('Options', conn, if_exists='append', index=False)
-
-            st.success("Les données ont été insérées dans la base de données (base vidée avant insertion).")
             conn.close()
+
+            st.success("Les données ont été insérées dans la base de données.")
 
 def pricing():
     st.title('📈 Pricing')
     st.write("Calculez la valeur théorique de votre option.")
 
-    # Connexion à la base de données
     conn = sqlite3.connect('options_data.db')
     cursor = conn.cursor()
-
-    # Récupérer la liste des symboles uniques présents dans la base
     cursor.execute("SELECT DISTINCT Symbol FROM Ticker")
     symbols_in_db = [row[0] for row in cursor.fetchall()]
-
     conn.close()
 
-    # Choix du rôle : Acheteur ou Vendeur
-    role = st.radio("Êtes-vous un acheteur ou un vendeur ?", options=["Acheteur", "Vendeur"])
-
-    if role == "Vendeur":
-        # Si c'est un vendeur, on demande les paramètres nécessaires
-        
-        # Saisie du symbole
-        if symbols_in_db:
-            symbol = st.selectbox("Symbole de l'actif", options=symbols_in_db)
-        else:
-            st.warning("Aucun symbole n'est disponible dans la base de données.")
-            return
-            
-        # Choix du type d'option
-        option_type = st.selectbox("Type d'option :", options=["Call", "Put"])
-
-        # On se connecte de nouveau pour récupérer les expirations correspondant au symbole choisi
-        conn = sqlite3.connect('options_data.db')
-        cursor = conn.cursor()
-        # On suppose que la table Options contient toutes les dates d'expiration dont on a besoin
-        cursor.execute("SELECT DISTINCT expiration_date FROM Options WHERE ticker = ?", (symbol,))
-        all_expirations = [row[0] for row in cursor.fetchall()]
-        conn.close()
-
-        # Convertir en datetime pour filtrer par année et mois
-        df_exp = pd.DataFrame(all_expirations, columns=["expiration_date"])
-        df_exp["expiration_date"] = pd.to_datetime(df_exp["expiration_date"]).dt.date
-
-        # Extraire années disponibles
-        df_exp['Year'] = df_exp['expiration_date'].apply(lambda d: d.year)
-        df_exp['Month'] = df_exp['expiration_date'].apply(lambda d: d.month)
-
-        years = sorted(df_exp['Year'].unique())
-        selected_year = st.selectbox("Année d'expiration", options=years)
-
-        # Filtrer par année
-        df_year = df_exp[df_exp['Year'] == selected_year]
-        months = sorted(df_year['Month'].unique())
-        selected_month = st.selectbox("Mois d'expiration", options=months, format_func=lambda m: f"{m:02d}")
-
-        # Filtrer par mois
-        df_month = df_year[df_year['Month'] == selected_month]
-
-        # Extraire les jours disponibles
-        available_dates = sorted(df_month['expiration_date'].unique())
-        expiration_date = st.selectbox("Date d'expiration", options=available_dates)
-
-        # Saisie du strike price (prix d'exercice)
-        conn = sqlite3.connect('options_data.db')
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT DISTINCT strike FROM Options
-            WHERE ticker = ? AND optionType = ? AND expiration_date = ?
-            ORDER BY strike
-        """, (symbol, option_type, expiration_date.strftime("%Y-%m-%d")))
-        all_strikes = [row[0] for row in cursor.fetchall()]
-        conn.close()
-
-        if not all_strikes:
-            st.warning("Aucun prix d'exercice disponible pour cette date d'expiration.")
-            return
-
-        # Si les strikes sont nombreux et réguliers, on peut utiliser un slider
-        # Sinon, un selectbox est plus approprié
-        # Exemple avec un selectbox (plus sûr si irrégulier) :
-        strike_price = st.selectbox("Prix d'exercice (Strike price)", options=all_strikes)
-
-
-        # Bouton pour calculer la valeur théorique
-        if st.button("Calculer la valeur de l'option"):
-            # Ici, on mettra plus tard le code qui :
-            # 1. Récupère le prix du sous-jacent
-            # 2. Récupère la volatilité, le taux sans risque, etc.
-            # 3. Calcule la valeur théorique avec la formule de Black-Scholes
-            # 4. Affiche le résultat
-            
-            st.write("La fonctionnalité de calcul est à venir...")
+    if symbols_in_db:
+        symbol = st.selectbox("Sélectionnez un symbole d'action :", options=symbols_in_db)
     else:
-        # Si c'est un acheteur, on traitera plus tard
-        st.write("La fonctionnalité pour les acheteurs sera implémentée ultérieurement.")
+        st.warning("Aucun symbole n'est disponible dans la base de données.")
+        return
+
+    # Choix de Call/Put
+    option_type_display = st.selectbox("Type d'option :", options=["Call", "Put"])
+    option_type_db = "C" if option_type_display == "Call" else "P"
+
+    # Sélection de la date d'expiration précise
+    expiration_date = st.date_input("Sélectionnez la date d'expiration :", value=datetime.date.today())
+
+    conn = sqlite3.connect('options_data.db')
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT DISTINCT strike 
+        FROM Options 
+        WHERE ticker = ? AND optionType = ? AND expiration_date = ?
+        ORDER BY strike
+    """, (symbol, option_type_db, expiration_date))
+    strikes = [row[0] for row in cursor.fetchall()]
+    conn.close()
+
+    if strikes:
+        strike_price = st.selectbox("Sélectionnez le strike price :", options=strikes)
+    else:
+        st.warning("Aucun strike price disponible pour cette option et cette date.")
+        return
+
+    st.write(f"Strike Price sélectionné : {strike_price}")
+    st.write(f"Date d'expiration sélectionnée : {expiration_date}")
+
+    data = st.session_state.get('options_data')
+    selected_row = data[(data['ticker'] == symbol) & 
+                        (data['optionType'] == option_type_db) & 
+                        (data['expiration_date'] == expiration_date) & 
+                        (data['strike'] == strike_price)].iloc[0]
+
+    S = selected_row['underlying_price']
+    K = selected_row['strike']
+    T = (expiration_date - datetime.datetime.now().date()).days / 365
+    r = 0.05  # Taux sans risque
+    sigma = selected_row['implied_volatility']
+
+    st.write(f"Prix du sous-jacent (S): {S}")
+    st.write(f"Strike (K): {K}")
+    st.write(f"Temps jusqu'à expiration (T): {T} ans")
+    st.write(f"Taux sans risque (r): {r}")
+    st.write(f"Volatilité implicite (σ): {sigma}")
+
+    # Calculer le prix de l'option via Black-Scholes et Monte Carlo
+    price_bs = black_scholes_price(S, K, T, r, sigma, option_type_db)
+    price_mc = monte_carlo_option_price(S, K, T, r, sigma, option_type_db)
+
+    st.write(f"Prix de l'option (Black-Scholes): {price_bs}")
+    st.write(f"Prix de l'option (Monte Carlo): {price_mc}")
 
 def sensibilites():
     st.title('📊 Sensibilités')
-    st.write("Analyse des sensibilités (Greeks) des options.")
+    st.write("Calcul des sensibilités des options (Greeks).")
 
 def visualisation():
     st.title('🔍 Visualisation')
-    st.write("Visualisations graphiques des données et des résultats.")
+    st.write("Visualisation des données et des résultats.")
 
 def comparaison():
     st.title('⚖️ Comparaison')
-    st.write("Comparaison des modèles de pricing des options.")
+    st.write("Comparez les prix de marché aux prix théoriques calculés.")
+
+    # Ajoutez la logique de comparaison des options si vous le souhaitez
+    st.write("Comparer les résultats ici.")
 
 def aide():
     st.title('❓ Aide')
-    st.write("Documentation et assistance pour l'utilisation de l'application.")
+    st.write("Consultez l'aide pour plus d'informations.")
 
 # Associer les pages à leurs fonctions respectives
 functions = {
