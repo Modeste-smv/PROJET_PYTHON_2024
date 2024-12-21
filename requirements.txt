@@ -1,2 +1,3 @@
 streamlit==1.37.0
 yfinance==0.2.50
+s3fs
