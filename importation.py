@@ -84,7 +84,7 @@ def process_expirations(symbols, min_date=None, max_date=None):
 
 
 
-data = process_expirations(["AAPL"], min_date=None, max_date=None)
+data = process_expirations(["GOOGL"], min_date=None, max_date=None)
 
 
 import os
