@@ -52,8 +52,8 @@ def process_expirations(symbols, min_date=None, max_date=None):
             puts = options.puts.copy()
 
             # Ajout de la colonne 'optionType'
-            calls['optionType'] = 'C'
-            puts['optionType'] = 'P'
+            calls['optionType'] = 'Call'
+            puts['optionType'] = 'Put'
 
             # Fusion des données
             symbol_data = pd.concat([calls, puts], ignore_index=True)

@@ -4,6 +4,8 @@ import datetime
 import pandas as pd
 from importation import process_expirations
 
+fs = s3fs.S3FileSystem(client_kwargs={'endpoint_url': 'https://minio.lab.sspcloud.fr'})
+data = pd.read_parquet("s3://modestesmv/database.parquet", filesystem=fs)
 
 st.set_page_config(layout="wide")
 # Définir les styles CSS pour la sidebar
@@ -185,15 +187,13 @@ def pricing():
     st.title('📈 Pricing')
     st.write("Calculez la valeur théorique de votre option.")
 
-    # Connexion à la base de données
-    conn = sqlite3.connect('options_data.db')
-    cursor = conn.cursor()
+    # Vérifier si la base de données est chargée
+    if data.empty:
+        st.warning("La base de données est vide. Veuillez vérifier la source.")
+        return
 
-    # Récupérer la liste des symboles uniques présents dans la base
-    cursor.execute("SELECT DISTINCT Symbol FROM Ticker")
-    symbols_in_db = [row[0] for row in cursor.fetchall()]
-
-    conn.close()
+    # Récupérer les symboles uniques disponibles
+    symbols_in_db = data['ticker'].unique().tolist()
 
     # Choix du rôle : Acheteur ou Vendeur
     role = st.radio("Êtes-vous un acheteur ou un vendeur ?", options=["Acheteur", "Vendeur"])
@@ -211,47 +211,35 @@ def pricing():
         # Choix du type d'option
         option_type = st.selectbox("Type d'option :", options=["Call", "Put"])
 
-        # On se connecte de nouveau pour récupérer les expirations correspondant au symbole choisi
-        conn = sqlite3.connect('options_data.db')
-        cursor = conn.cursor()
-        # On suppose que la table Options contient toutes les dates d'expiration dont on a besoin
-        cursor.execute("SELECT DISTINCT expiration_date FROM Options WHERE ticker = ?", (symbol,))
-        all_expirations = [row[0] for row in cursor.fetchall()]
-        conn.close()
+        # Filtrer les données pour récupérer les expirations disponibles
+        df_symbol = data[(data['ticker'] == symbol) & (data['optionType'] == option_type)]
+        if df_symbol.empty:
+            st.warning(f"Aucune donnée disponible pour {symbol} ({option_type}).")
+            return
 
-        # Convertir en datetime pour filtrer par année et mois
-        df_exp = pd.DataFrame(all_expirations, columns=["expiration_date"])
-        df_exp["expiration_date"] = pd.to_datetime(df_exp["expiration_date"]).dt.date
+        # Extraire et trier les dates d'expiration disponibles
+        df_symbol['expiration_date'] = pd.to_datetime(df_symbol['expiration_date'])
+        df_exp = df_symbol[['expiration_date']].drop_duplicates().sort_values('expiration_date')
 
-        # Extraire années disponibles
-        df_exp['Year'] = df_exp['expiration_date'].apply(lambda d: d.year)
-        df_exp['Month'] = df_exp['expiration_date'].apply(lambda d: d.month)
-
+        # Sélection des années
+        df_exp['Year'] = df_exp['expiration_date'].dt.year
         years = sorted(df_exp['Year'].unique())
         selected_year = st.selectbox("Année d'expiration", options=years)
 
         # Filtrer par année
         df_year = df_exp[df_exp['Year'] == selected_year]
+        df_year['Month'] = df_year['expiration_date'].dt.month
         months = sorted(df_year['Month'].unique())
         selected_month = st.selectbox("Mois d'expiration", options=months, format_func=lambda m: f"{m:02d}")
 
         # Filtrer par mois
         df_month = df_year[df_year['Month'] == selected_month]
-
-        # Extraire les jours disponibles
         available_dates = sorted(df_month['expiration_date'].unique())
         expiration_date = st.selectbox("Date d'expiration", options=available_dates)
 
         # Saisie du strike price (prix d'exercice)
-        conn = sqlite3.connect('options_data.db')
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT DISTINCT strike FROM Options
-            WHERE ticker = ? AND optionType = ? AND expiration_date = ?
-            ORDER BY strike
-        """, (symbol, option_type, expiration_date.strftime("%Y-%m-%d")))
-        all_strikes = [row[0] for row in cursor.fetchall()]
-        conn.close()
+        df_strike = df_symbol[df_symbol['expiration_date'] == expiration_date]
+        all_strikes = sorted(df_strike['strike'].unique())
 
         if not all_strikes:
             st.warning("Aucun prix d'exercice disponible pour cette date d'expiration.")
