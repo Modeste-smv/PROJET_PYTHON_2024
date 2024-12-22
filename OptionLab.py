@@ -1,11 +1,149 @@
 import streamlit as st
 import sqlite3
-import datetime
+from datetime import datetime
 import pandas as pd
+import numpy as np
 from importation import process_expirations
 import s3fs
+import yfinance as yf
+
+
+# Liaison à la base
 fs = s3fs.S3FileSystem(client_kwargs={'endpoint_url': 'https://minio.lab.sspcloud.fr'})
 data = pd.read_parquet("s3://modestesmv/database.parquet", filesystem=fs)
+# Conversion explicite de la colonne expiration_date en datetime
+data['expiration_date'] = pd.to_datetime(data['expiration_date'], errors='coerce')
+
+# SIMULATION MONTE CARLO 
+def monte_carlo_option_price(S, K, T, r, sigma, option_type='C', num_simulations=10000):
+
+    """
+
+    Calcule la valeur théorique d'une option selon la méthode de Monte Carlo.
+
+ 
+
+    Paramètres:
+
+    - S : Prix actuel du sous-jacent
+
+    - K : Prix d'exercice (strike price)
+
+    - T : Temps jusqu'à expiration (en années)
+
+    - r : Taux sans risque
+
+    - sigma : Volatilité implicite
+
+    - option_type : 'C' pour Call, 'P' pour Put
+
+    - num_simulations : Nombre de simulations Monte Carlo
+
+ 
+
+    Retourne la valeur théorique de l'option calculée via Monte Carlo.
+
+    """
+
+    dt = T / 252  # Nombre de jours de trading par an
+
+    discount_factor = np.exp(-r * T)  # Facteur de décote
+
+   
+
+    # Générer les chemins simulés
+
+    simulated_prices = np.zeros(num_simulations)
+
+    for i in range(num_simulations):
+
+        price_path = S
+
+        for t in range(int(T / dt)):
+
+            price_path *= np.exp((r - 0.5 * sigma ** 2) * dt + sigma * np.sqrt(dt) * np.random.normal())
+
+        simulated_prices[i] = price_path
+
+   
+
+    # Calculer la valeur de l'option
+
+    if option_type == 'C':
+
+        option_values = np.maximum(simulated_prices - K, 0)  # Call option payoff
+
+    elif option_type == 'P':
+
+        option_values = np.maximum(K - simulated_prices, 0)  # Put option payoff
+
+   
+
+    return discount_factor * np.mean(option_values)
+
+
+
+
+
+class AmericanOptionsLSMC:
+    """Classe pour valoriser les options américaines en utilisant la méthode de Longstaff-Schwartz (2001)."""
+
+    def __init__(self, option_type, S0, strike, T, M, r, div, sigma, simulations):
+        self.option_type = option_type.lower()
+        self.S0 = float(S0)
+        self.strike = float(strike)
+        self.T = float(T)
+        self.M = int(M)
+        self.r = float(r)
+        self.div = float(div)
+        self.sigma = float(sigma)
+        self.simulations = int(simulations)
+
+        if self.option_type not in ['call', 'put']:
+            raise ValueError("Le type d'option doit être 'call' ou 'put'.")
+
+        self.time_unit = self.T / self.M
+        self.discount = np.exp(-self.r * self.time_unit)
+
+    def _generate_price_paths(self, seed=123):
+        np.random.seed(seed)
+        prices = np.zeros((self.M + 1, self.simulations))
+        prices[0, :] = self.S0
+
+        for t in range(1, self.M + 1):
+            brownian = np.random.standard_normal(self.simulations // 2)
+            brownian = np.concatenate((brownian, -brownian))
+            prices[t, :] = prices[t - 1, :] * np.exp(
+                (self.r - self.sigma ** 2 / 2) * self.time_unit + self.sigma * np.sqrt(self.time_unit) * brownian
+            )
+        return prices
+
+    def _calculate_payoffs(self, prices):
+        if self.option_type == 'call':
+            return np.maximum(prices - self.strike, 0)
+        elif self.option_type == 'put':
+            return np.maximum(self.strike - prices, 0)
+
+    def _backward_induction(self, prices, payoffs):
+        values = np.zeros_like(payoffs)
+        values[-1, :] = payoffs[-1, :]
+
+        for t in range(self.M - 1, 0, -1):
+            regression = np.polyfit(prices[t, :], values[t + 1, :] * self.discount, 5)
+            continuation_value = np.polyval(regression, prices[t, :])
+            values[t, :] = np.where(payoffs[t, :] > continuation_value, payoffs[t, :], values[t + 1, :] * self.discount)
+
+        return values[1, :] * self.discount
+
+    def price(self):
+        prices = self._generate_price_paths()
+        payoffs = self._calculate_payoffs(prices)
+        values = self._backward_induction(prices, payoffs)
+        return np.mean(values)
+
+
+
+
 
 st.set_page_config(layout="wide")
 # Définir les styles CSS pour la sidebar
@@ -250,23 +388,167 @@ def pricing():
         # Exemple avec un selectbox (plus sûr si irrégulier) :
         strike_price = st.selectbox("Prix d'exercice (Strike price)", options=all_strikes)
 
+    selected_row = df_symbol[
+        (df_symbol['expiration_date'] == expiration_date) &
+        (df_symbol['strike'] == strike_price) &
+        (df_symbol['optionType'] == option_type)
+    ]
+    selected_row = selected_row.iloc[0]  # Récupère la première ligne
+    
+    # Bouton pour calculer la valeur théorique
+    if st.button("Calculer la valeur de l'option"):
+        # Récupérer les données pour AAPL
+        ticker = yf.Ticker(symbol)
+        # Méthode 1 : Récupérer le prix actuel directement
+        S0 = ticker.history(period="1d")['Close'].iloc[-1]
+        K = selected_row['strike']
+        T = (pd.to_datetime(selected_row['expiration_date'], unit='ms') - pd.Timestamp.now()).days / 365.0
+        r = 0.05  # Exemple de taux sans risque
+        sigma = selected_row['impliedVolatility']
+        M = 50  # Nombre de pas
+        simulations = 10000
 
-        # Bouton pour calculer la valeur théorique
-        if st.button("Calculer la valeur de l'option"):
-            # Ici, on mettra plus tard le code qui :
-            # 1. Récupère le prix du sous-jacent
-            # 2. Récupère la volatilité, le taux sans risque, etc.
-            # 3. Calcule la valeur théorique avec la formule de Black-Scholes
-            # 4. Affiche le résultat
-            
-            st.write("La fonctionnalité de calcul est à venir...")
+        american_option = AmericanOptionsLSMC(option_type.lower(), S0, K, T, M, r, 0, sigma, simulations)
+        option_price = american_option.price()
+
+        st.success(f"Valeur théorique de l'option américaine : {option_price:.2f} €")
+        st.write(selected_row['lastPrice'])
     else:
         # Si c'est un acheteur, on traitera plus tard
         st.write("La fonctionnalité pour les acheteurs sera implémentée ultérieurement.")
 
+##################################### SENSIBILITE ##############################################
 def sensibilites():
     st.title('📊 Sensibilités')
     st.write("Analyse des sensibilités (Greeks) des options.")
+
+    # Filtrer les données selon les sélections de l'utilisateur
+    tickers = data['ticker'].unique()
+    selected_ticker = st.selectbox("Sélectionnez un ticker", tickers)
+    filtered_data = data[data['ticker'] == selected_ticker]
+
+    # Sélection de l'année
+    filtered_data['Year'] = filtered_data['expiration_date'].dt.year
+    years = filtered_data['Year'].unique()
+    selected_year = st.selectbox("Sélectionnez une année d'expiration", sorted(years))
+
+    # Filtrer les données par année sélectionnée
+    filtered_year_data = filtered_data[filtered_data['Year'] == selected_year]
+
+    # Sélection du mois
+    filtered_year_data['Month'] = filtered_year_data['expiration_date'].dt.month
+    months = filtered_year_data['Month'].unique()
+    selected_month = st.selectbox("Sélectionnez un mois d'expiration", sorted(months))
+
+    # Filtrer les données par mois sélectionné
+    filtered_month_data = filtered_year_data[filtered_year_data['Month'] == selected_month]
+
+    # Sélection de la date précise
+    available_dates = filtered_month_data['expiration_date'].dt.date.unique()
+    selected_date = st.selectbox("Sélectionnez une date d'expiration", sorted(available_dates))
+
+    # Affiner les données pour la date sélectionnée
+    filtered_data = filtered_month_data[filtered_month_data['expiration_date'].dt.date == selected_date]
+
+    # Sélection du strike
+    strikes = filtered_data['strike'].unique()
+    selected_strike = st.selectbox("Sélectionnez un prix d'exercice (strike)", strikes)
+
+    # Type d'option
+    option_type = st.radio("Type d'option", ['Call', 'Put'])
+
+    # Filtrer les données finales
+    option_data = filtered_data[
+        (filtered_data['strike'] == selected_strike) &
+        (filtered_data['optionType'] == option_type)
+    ]
+
+    # Vérifier si des données sont disponibles
+    if option_data.empty:
+        st.error("Aucune donnée correspondante trouvée. Veuillez ajuster vos sélections.")
+        return
+
+    # Vérifier la colonne 'impliedVolatility'
+    if 'impliedVolatility' not in option_data.columns or option_data['impliedVolatility'].isnull().all():
+        st.error("La colonne 'impliedVolatility' est vide ou absente. Vérifiez les données.")
+        return
+
+    # Identifier la ligne exacte
+    selected_row = option_data.iloc[0]
+
+    # Récupération des paramètres à partir de la ligne sélectionnée
+    ticker = yf.Ticker(selected_ticker)
+    try:
+        S0 = ticker.history(period="1d")['Close'].iloc[-1]  # Prix actuel du sous-jacent
+    except Exception as e:
+        st.error(f"Impossible de récupérer le prix actuel : {e}")
+        return
+
+    T = (pd.to_datetime(selected_date) - pd.Timestamp.now()).days / 365.0  # Maturité
+    K = selected_row['strike']
+    sigma = selected_row['impliedVolatility']
+    r = st.number_input("Taux sans risque (r, en %)", value=5.0) / 100
+    N = st.number_input("Nombre de trajectoires Monte Carlo (N)", value=100000, step=1000)
+    M = st.number_input("Nombre de pas dans la simulation (M)", value=100, step=10)
+
+    # Fonction pour calculer les sensibilités
+    def calcul_sensibilites(S0, K, T, r, sigma, N, M, option_type="call"):
+        dt = T / M
+        discount = np.exp(-r * dt)
+
+        # Simuler les trajectoires
+        S = np.zeros((N, M + 1))
+        S[:, 0] = S0
+        for t in range(1, M + 1):
+            Z = np.random.standard_normal(N)
+            S[:, t] = S[:, t - 1] * np.exp((r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z)
+
+        # Payoff
+        if option_type == "call":
+            payoff = np.maximum(S[:, -1] - K, 0)
+        else:
+            payoff = np.maximum(K - S[:, -1], 0)
+
+        # Prix
+        price = discount * np.mean(payoff)
+
+        # Greeks
+        h = 0.01
+
+        # Delta
+        S_up = S0 + h
+        S_down = S0 - h
+        payoff_up = np.maximum(S_up - K, 0) if option_type == "call" else np.maximum(K - S_up, 0)
+        payoff_down = np.maximum(S_down - K, 0) if option_type == "call" else np.maximum(K - S_down, 0)
+        delta = (np.mean(payoff_up) - np.mean(payoff_down)) / (2 * h)
+
+        # Gamma
+        gamma = (np.mean(payoff_up) - 2 * price + np.mean(payoff_down)) / (h ** 2)
+
+        # Vega
+        sigma_up = sigma + h
+        payoff_vega = np.maximum(S0 * np.exp((r - 0.5 * sigma_up**2) * T + sigma_up * np.sqrt(T) * np.random.standard_normal(N)) - K, 0)
+        vega = (np.mean(payoff_vega) - price) / h
+
+        # Theta
+        T_down = T - h
+        payoff_theta = np.maximum(S0 * np.exp((r - 0.5 * sigma**2) * T_down + sigma * np.sqrt(T_down) * np.random.standard_normal(N)) - K, 0)
+        theta = (np.mean(payoff_theta) - price) / h
+
+        return price, delta, gamma, vega, theta
+
+    # Calculer et afficher les résultats
+    if st.button("Calculer"):
+        price, delta, gamma, vega, theta = calcul_sensibilites(S0, K, T, r, sigma, int(N), int(M), option_type)
+        st.write("### Résultats :")
+        st.write(f"- **Prix de l'option** : {price:.4f}")
+        st.write(f"- **Delta** : {delta:.4f}")
+        st.write(f"- **Gamma** : {gamma:.4f}")
+        st.write(f"- **Vega** : {vega:.4f}")
+        st.write(f"- **Theta** : {theta:.4f}")
+
+
+
 
 def visualisation():
     st.title('🔍 Visualisation')
