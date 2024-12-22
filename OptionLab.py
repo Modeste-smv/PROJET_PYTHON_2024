@@ -3,7 +3,7 @@ import sqlite3
 import datetime
 import pandas as pd
 from importation import process_expirations
-
+import s3fs
 fs = s3fs.S3FileSystem(client_kwargs={'endpoint_url': 'https://minio.lab.sspcloud.fr'})
 data = pd.read_parquet("s3://modestesmv/database.parquet", filesystem=fs)
 
