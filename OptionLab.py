@@ -1,8 +1,10 @@
+import numpy as np
 import streamlit as st
 import sqlite3
-import datetime
+from datetime import datetime
 import pandas as pd
 from importation import process_expirations
+import yfinance as yf
 
 
 st.set_page_config(layout="wide")
@@ -279,6 +281,112 @@ def pricing():
 def sensibilites():
     st.title('📊 Sensibilités')
     st.write("Analyse des sensibilités (Greeks) des options.")
+
+    # Connexion à la base de données
+    conn = sqlite3.connect("options_data.db")  # Remplacez par le chemin de votre base SQLite
+
+    # Chargement des données depuis la base de données
+    query = "SELECT * FROM options"
+    data = pd.read_sql(query, conn)
+
+    # Filtrer les données selon l'utilisateur
+    tickers = data['ticker'].unique()
+    selected_ticker = st.selectbox("Sélectionnez un ticker", tickers)
+    filtered_data = data[data['ticker'] == selected_ticker]
+
+    expirations = filtered_data['expiration_date'].unique()
+    selected_expiration = st.selectbox("Sélectionnez une date d'expiration", expirations)
+    filtered_data = filtered_data[filtered_data['expiration_date'] == selected_expiration]
+
+    strikes = filtered_data['strike'].unique()
+    selected_strike = st.selectbox("Sélectionnez un prix d'exercice (strike)", strikes)
+    filtered_data = filtered_data[filtered_data['strike'] == selected_strike]
+
+    option_type = st.radio("Type d'option", ['call', 'put'])
+    option_data = filtered_data[filtered_data['optionType'] == ('C' if option_type == 'call' else 'P')]
+
+    # Vérifier si des données sont disponibles
+    if option_data.empty:
+        st.error("Aucune donnée correspondante trouvée. Veuillez ajuster vos sélections.")
+        return
+
+    # Vérifier la colonne 'impliedVolatility'
+    if 'impliedVolatility' not in option_data.columns or option_data['impliedVolatility'].isnull().all():
+        st.error("La colonne 'impliedVolatility' est vide ou absente. Vérifiez les données.")
+        return
+
+    ticker = yf.Ticker(selected_ticker)
+    S0 = ticker.history(period="1d")['Close'].iloc[-1]  # Prix actuel du sous-jacent
+    T = (datetime.strptime(selected_expiration, '%Y-%m-%d').date() - datetime.now().date()).days / 365.0
+    K = selected_strike
+    sigma = option_data['impliedVolatility'].iloc[0]
+    r = st.number_input("Taux sans risque (r, en %)", value=5.0) / 100
+    N = st.number_input("Nombre de trajectoires Monte Carlo (N)", value=100000, step=1000)
+    M = st.number_input("Nombre de pas dans la simulation (M)", value=100, step=10)
+
+    def calcul_sensibilites(S0, K, T, r, sigma, N, M, option_type="call"):
+        dt = T / M
+        discount = np.exp(-r * dt)
+
+        # Simuler les trajectoires de prix du sous-jacent
+        S = np.zeros((N, M + 1))
+        S[:, 0] = S0
+        for t in range(1, M + 1):
+            Z = np.random.standard_normal(N)
+            S[:, t] = S[:, t - 1] * np.exp((r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z)
+
+        # Calcul des payoffs à l'échéance
+        if option_type == "call":
+            payoff = np.maximum(S[:, -1] - K, 0)
+        else:
+            payoff = np.maximum(K - S[:, -1], 0)
+
+        # Estimation du prix de l'option
+        price = discount * np.mean(payoff)
+
+        # Calcul des Greeks par différences finies
+        h = 0.01
+
+        # Delta
+        payoff_up = np.maximum((S0 + h) * np.exp((r - 0.5 * sigma**2) * T + sigma * np.sqrt(T) * np.random.standard_normal(N)) - K, 0)
+        payoff_down = np.maximum((S0 - h) * np.exp((r - 0.5 * sigma**2) * T + sigma * np.sqrt(T) * np.random.standard_normal(N)) - K, 0)
+        price_up = discount * np.mean(payoff_up)
+        price_down = discount * np.mean(payoff_down)
+        delta = (price_up - price_down) / (2 * h)
+
+        # Gamma
+        gamma = (price_up - 2 * price + price_down) / (h ** 2)
+
+        # Vega
+        payoff_vega = np.maximum(S0 * np.exp((r - 0.5 * (sigma + h)**2) * T + (sigma + h) * np.sqrt(T) * np.random.standard_normal(N)) - K, 0)
+        price_vega = discount * np.mean(payoff_vega)
+        vega = (price_vega - price) / h
+
+        # Theta
+        payoff_theta = np.maximum(S0 * np.exp((r - 0.5 * sigma**2) * (T - h) + sigma * np.sqrt(T - h) * np.random.standard_normal(N)) - K, 0)
+        price_theta = discount * np.mean(payoff_theta)
+        theta = (price_theta - price) / h
+
+        # Rho
+        payoff_rho = np.maximum(S0 * np.exp((r + h - 0.5 * sigma**2) * T + sigma * np.sqrt(T) * np.random.standard_normal(N)) - K, 0)
+        price_rho = np.mean(payoff_rho) * np.exp(-(r + h) * T)
+        rho = (price_rho - price) / h
+
+        return price, delta, gamma, vega, theta, rho
+
+    if st.button("Calculer"):
+        price, delta, gamma, vega, theta, rho = calcul_sensibilites(S0, K, T, r, sigma, int(N), int(M), option_type)
+        st.write(f"### Résultats :")
+        st.write(f"- **Prix de l'option** : {price:.4f}")
+        st.write(f"- **Delta** : {delta:.4f}")
+        st.write(f"- **Gamma** : {gamma:.4f}")
+        st.write(f"- **Vega** : {vega:.4f}")
+        st.write(f"- **Theta** : {theta:.4f}")
+        st.write(f"- **Rho** : {rho:.4f}")
+
+    # Fermeture de la connexion à la base de données
+    conn.close()
+
 
 def visualisation():
     st.title('🔍 Visualisation')
