@@ -6,6 +6,7 @@ import numpy as np
 from importation import process_expirations
 import s3fs
 import yfinance as yf
+import matplotlib.pyplot as plt
 
 
 # Liaison à la base
@@ -388,34 +389,125 @@ def pricing():
         # Exemple avec un selectbox (plus sûr si irrégulier) :
         strike_price = st.selectbox("Prix d'exercice (Strike price)", options=all_strikes)
 
-    selected_row = df_symbol[
-        (df_symbol['expiration_date'] == expiration_date) &
-        (df_symbol['strike'] == strike_price) &
-        (df_symbol['optionType'] == option_type)
-    ]
-    selected_row = selected_row.iloc[0]  # Récupère la première ligne
+        selected_row = df_symbol[
+            (df_symbol['expiration_date'] == expiration_date) &
+            (df_symbol['strike'] == strike_price) &
+            (df_symbol['optionType'] == option_type)
+        ]
+        selected_row = selected_row.iloc[0]  # Récupère la première ligne
     
-    # Bouton pour calculer la valeur théorique
-    if st.button("Calculer la valeur de l'option"):
-        # Récupérer les données pour AAPL
-        ticker = yf.Ticker(symbol)
-        # Méthode 1 : Récupérer le prix actuel directement
-        S0 = ticker.history(period="1d")['Close'].iloc[-1]
-        K = selected_row['strike']
-        T = (pd.to_datetime(selected_row['expiration_date'], unit='ms') - pd.Timestamp.now()).days / 365.0
-        r = 0.05  # Exemple de taux sans risque
-        sigma = selected_row['impliedVolatility']
-        M = 50  # Nombre de pas
-        simulations = 10000
+        # Bouton pour calculer la valeur théorique
+        if st.button("Calculer la valeur de l'option"):
+            # Récupérer les données pour AAPL
+            ticker = yf.Ticker(symbol)
+            # Méthode 1 : Récupérer le prix actuel directement
+            S0 = ticker.history(period="1d")['Close'].iloc[-1]
+            K = selected_row['strike']
+            T = (pd.to_datetime(selected_row['expiration_date'], unit='ms') - pd.Timestamp.now()).days / 365.0
+            r = 0.05  # Exemple de taux sans risque
+            sigma = selected_row['impliedVolatility']
+            M = 50  # Nombre de pas
+            simulations = 10000
 
-        american_option = AmericanOptionsLSMC(option_type.lower(), S0, K, T, M, r, 0, sigma, simulations)
-        option_price = american_option.price()
+            american_option = AmericanOptionsLSMC(option_type.lower(), S0, K, T, M, r, 0, sigma, simulations)
+            option_price = american_option.price()
 
-        st.success(f"Valeur théorique de l'option américaine : {option_price:.2f} €")
-        st.write(selected_row['lastPrice'])
+            st.success(f"Valeur théorique de l'option américaine : {option_price:.2f} €")
+            st.write(selected_row['lastPrice'])
+    
+    elif role == "Acheteur":
+        # Partie acheteur
+        if symbols_in_db:
+            symbol = st.selectbox("Choisissez un symbole d'actif", options=symbols_in_db)
+        else:
+            st.warning("Aucun symbole n'est disponible dans la base de données.")
+            return
+
+        # Choix du type d'option
+        option_type = st.selectbox("Type d'option :", options=["Call", "Put"])
+
+        # Filtrer les données pour récupérer les expirations disponibles
+        df_symbol2 = data[(data['ticker'] == symbol) & (data['optionType'] == option_type)]
+        if df_symbol2.empty:
+            st.warning(f"Aucune donnée disponible pour {symbol} ({option_type}).")
+            return
+
+        # Extraire et trier les dates d'expiration disponibles
+        df_symbol2['expiration_date'] = pd.to_datetime(df_symbol2['expiration_date'])
+        df_exp = df_symbol2[['expiration_date']].drop_duplicates().sort_values('expiration_date')
+
+        # Sélection des années
+        df_exp['Year'] = df_exp['expiration_date'].dt.year
+        years = sorted(df_exp['Year'].unique())
+        selected_year = st.selectbox("Année d'expiration", options=years)
+
+        # Filtrer par année
+        df_year = df_exp[df_exp['Year'] == selected_year]
+        df_year['Month'] = df_year['expiration_date'].dt.month
+        months = sorted(df_year['Month'].unique())
+        selected_month = st.selectbox("Mois d'expiration", options=months, format_func=lambda m: f"{m:02d}")
+
+        # Filtrer par mois
+        df_month = df_year[df_year['Month'] == selected_month]
+        available_dates = sorted(df_month['expiration_date'].unique())
+        expiration_date = st.selectbox("Date d'expiration", options=available_dates)
+
+        # Filtrer les options disponibles pour la date choisie
+        df_filtered = df_symbol2[df_symbol2['expiration_date'] == expiration_date]
+
+        # Bouton pour modéliser les valeurs des options
+        if st.button("Modéliser les valeurs des options"):
+
+            # Graphique : Valeurs théoriques et derniers prix en fonction du strike price
+            if not df_filtered.empty:
+                strikes = df_filtered['strike'].unique()
+                theoretical_values = []
+                last_prices = []
+
+                # Calcul des valeurs théoriques pour chaque strike
+                for _, row in df_filtered.iterrows():
+                    S0 = yf.Ticker(symbol).history(period="1d")['Close'].iloc[-1]
+                    K = row['strike']
+                    T = (pd.to_datetime(row['expiration_date']) - pd.Timestamp.now()).days / 365.0
+                    r = 0.05  # Taux sans risque (exemple)
+                    sigma = row['impliedVolatility']
+                    M = 50  # Nombre de pas
+                    simulations = 10000
+
+                    american_option = AmericanOptionsLSMC(option_type.lower(), S0, K, T, M, r, 0, sigma, simulations)
+                    theoretical_values.append(american_option.price())
+                    last_prices.append(row['lastPrice'])
+
+                # Création du graphique
+                fig, ax = plt.subplots()
+
+                # Tracer les courbes des valeurs théoriques et des derniers prix
+                ax.plot(strikes, theoretical_values, label="Valeur théorique", color="turquoise")
+                ax.plot(strikes, last_prices, label="Valeur de marché", color="coral")
+
+                # Configuration des axes et légendes
+                ax.set_xlabel("Prix d'exercice (Strike)", fontsize=8)
+                ax.set_ylabel("Prix", fontsize=8)
+                ax.set_title(f"{symbol} ({option_type}) - {expiration_date.date()}", fontsize=10)
+                ax.tick_params(axis='both', which='major', labelsize=7)
+                ax.legend(fontsize=6)
+
+                # Affichage du graphique
+                st.pyplot(fig)
+                # Calcul de l'option à conseiller
+                differences = [abs(tv - lp) for tv, lp in zip(theoretical_values, last_prices)]
+                max_diff_index = differences.index(max(differences))
+                best_strike = strikes[max_diff_index]
+                best_theoretical_value = theoretical_values[max_diff_index]
+                best_last_price = last_prices[max_diff_index]
+
+                # Message de recommandation
+                st.markdown(f"### Conseil :")
+                st.markdown(f"L'option avec le prix d'exercice (strike) de **{best_strike}** est recommandée.")
+                st.markdown(f"Elle a la plus grande différence entre la valeur théorique (**{best_theoretical_value:.2f}**) et le dernier prix (**{best_last_price:.2f}**).")
+
     else:
-        # Si c'est un acheteur, on traitera plus tard
-        st.write("La fonctionnalité pour les acheteurs sera implémentée ultérieurement.")
+        st.warning("Aucune option disponible pour cette date d'expiration.")
 
 ##################################### SENSIBILITE ##############################################
 def sensibilites():
