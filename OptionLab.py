@@ -1,6 +1,6 @@
 import streamlit as st
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 from importation import process_expirations
@@ -8,7 +8,9 @@ import s3fs
 import yfinance as yf
 import time
 import matplotlib.pyplot as plt
-
+import plotly.express as px
+import plotly.graph_objects as go
+import ta
 
 
 
@@ -620,32 +622,28 @@ def sensibilites():
 
 
 
-############################################# REAL TIME STOCK #############################################
-import streamlit as st
-import plotly.express as px
-import plotly.graph_objects as go
-import pandas as pd
-import yfinance as yf
-from datetime import datetime, timedelta
-import ta
+############################################# ACTIONS EN TEMPS RÉEL #############################################
 
 ##########################################################################################
-## PART 1: Define Functions for Pulling, Processing, and Creating Technical Indicators ##
+## PART 1 : Fonctions pour Récupérer, Traiter et Créer des Indicateurs Techniques##
 ##########################################################################################
 
-# Fetch stock data based on the ticker, period, and interval
-def fetch_stock_data(ticker, period, interval):
-    end_date = datetime.now()
-    if period == '1wk':
-        start_date = end_date - timedelta(days=7)
-        data = yf.download(ticker, start=start_date, end=end_date, interval=interval)
+# Récupérer les données boursières
+
+def recuperer_donnees_boursieres(ticker, periode, intervalle):
+    date_fin = datetime.now()
+    if periode == '1wk':
+        date_debut = date_fin - timedelta(days=7)
+        data = yf.download(ticker, start=date_debut, end=date_fin, interval=intervalle)
+        data.columns = data.columns.get_level_values(0)
     else:
-        data = yf.download(ticker, period=period, interval=interval)
+        data = yf.download(ticker, period=periode, interval=intervalle)
         data.columns = data.columns.get_level_values(0)
     return data
 
-# Process data to ensure it is timezone-aware and has the correct format
-def process_data(data):
+# Traiter les données boursières
+
+def traiter_donnees(data):
     if data.index.tzinfo is None:
         data.index = data.index.tz_localize('UTC')
     data.index = data.index.tz_convert('US/Eastern')
@@ -653,31 +651,36 @@ def process_data(data):
     data.rename(columns={'Date': 'Datetime'}, inplace=True)
     return data
 
-# Calculate basic metrics from the stock data
-def calculate_metrics(data):
-    last_close = data['Close'].iloc[-1]
-    prev_close = data['Close'].iloc[0]
-    change = last_close - prev_close
-    pct_change = (change / prev_close) * 100
-    high = data['High'].max()
-    low = data['Low'].min()
-    volume = data['Volume'].sum()
-    return last_close, change, pct_change, high, low, volume
+# Calculer les métriques principales
 
-# Add simple moving average (SMA) and exponential moving average (EMA) indicators
-def add_technical_indicators(data):
-    data['SMA_20'] = ta.trend.sma_indicator(data["Close"], window=20)
-    data['EMA_20'] = ta.trend.ema_indicator(data["Close"], window=20)
+def calculer_metriques(data):
+    dernier_cours = data['Close'].iloc[-1]
+    cours_precedent = data['Close'].iloc[0]
+    variation = dernier_cours - cours_precedent
+    variation_pourcentage = (variation / cours_precedent) * 100
+    haut = data['High'].max()
+    bas = data['Low'].min()
+    volume = data['Volume'].sum()
+    return dernier_cours, variation, variation_pourcentage, haut, bas, volume
+
+# Ajout des indicateurs 
+
+def ajouter_indicateurs_techniques(data):
+    data['MMS_20'] = ta.trend.sma_indicator(data["Close"], window=20)
+    data['MME_20'] = ta.trend.ema_indicator(data["Close"], window=20)
     return data
 
-###############################################
-## PART 2: Creating the Visualisation Layout ##
-###############################################
+##############################################################################################
+#################### PART 2: Création de la Mise en Page de Visualisation ###################
+##############################################################################################
 
-# Main function for the visualisation tab
+# Fonction principale pour l'onglet visualisation
+
 def visualisation():
-    st.title('🔍 Visualisation des données boursières')
-    st.write("Visualisez les fluctuations des prix et les indicateurs techniques pour les actions sélectionnées.")
+    st.markdown("""
+    <div style='text-align: center;'> <h1 style='color:#0E3453;'>Visualisation des Marchés Financiers</h1></div>
+    """, unsafe_allow_html=True)
+    st.markdown("<h6 style='margin-top:15px;color:#A75502'>Visualisez les fluctuations des prix et les indicateurs techniques pour les actions sélectionnées.</h6>",unsafe_allow_html=True)
 
     # Création des colonnes pour le formulaire
     col1, col2, col3, col4 = st.columns(4)
@@ -686,47 +689,42 @@ def visualisation():
         ticker = st.selectbox('Ticker', options=['AAPL', 'MSFT', 'TSLA', 'JNJ', 'JPM', 'XOM', 'PG', 'NVDA'])
 
     with col2:
-        time_period = st.selectbox('Période', options=['1d', '5d', '1mo', '3mo', '6mo', '1y', '2y', '5y', 'max'])
+        periode = st.selectbox('Période', options=['1d', '1wk', '1mo', '1y', 'max'],index=3)
 
     with col3:
-        chart_type = st.selectbox('Type de graphique', options=['Candlestick', 'Ligne'])
+        type_graphe = st.selectbox('Type de graphique', options=['Candlestick', 'Ligne'])
 
     with col4:
-        indicators = st.multiselect('Indicateurs techniques', options=['SMA 20', 'EMA 20'])
+        indicateurs = st.multiselect('Indicateurs techniques', options=['MMS 20', 'MME 20'])
 
     # Mapping des intervalles
-    interval_mapping = {
+    intervalle_mapping = {
         '1d': '1m',
-        '5d': '15m',
-        '1mo': '1h',
-        '3mo': '1h',
-        '6mo': '1h',
-        '1y': '1d',
-        '2y': '1d',
-        '5y': '1wk',
-        'max': '1mo'
+        '1wk': '30m',
+        '1mo': '1d',
+        '1y': '1wk',
+        'max': '1wk'
     }
-
     if st.button('Mettre à jour'):
-        interval = interval_mapping[time_period]
-        data = fetch_stock_data(ticker, time_period, interval)
+        intervalle = intervalle_mapping[periode]
+        data = recuperer_donnees_boursieres(ticker, periode, intervalle)
 
         if not data.empty:
-            data = process_data(data)
-            data = add_technical_indicators(data)
-            last_close, change, pct_change, high, low, volume = calculate_metrics(data)
+            data = traiter_donnees(data)
+            data = ajouter_indicateurs_techniques(data)
+            dernier_cours, variation, variation_pourcentage, haut, bas, volume = calculer_metriques(data)
 
-            # Display main metrics
-            st.metric(label=f"{ticker} Dernier Prix", value=f"{last_close:.2f} USD", delta=f"{change:.2f} ({pct_change:.2f}%)")
+            # Afficher les métriques principales
 
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Haut", f"{high:.2f} USD")
-            col2.metric("Bas", f"{low:.2f} USD")
-            col3.metric("Volume", f"{volume:,}")
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric(label=f"{ticker} Dernier Prix", value=f"{dernier_cours:.2f} USD", delta=f"{variation:.2f} ({variation_pourcentage:.2f}%)")
+            col2.metric("Haut", f"{haut:.2f} USD")
+            col3.metric("Bas", f"{bas:.2f} USD")
+            col4.metric("Volume", f"{volume:,}")
 
-            # Plot the stock price chart
+            # Graphique du cours actuel
             fig = go.Figure()
-            if chart_type == 'Candlestick':
+            if type_graphe == 'Candlestick':
                 fig.add_trace(go.Candlestick(x=data['Datetime'],
                                              open=data['Open'],
                                              high=data['High'],
@@ -735,15 +733,15 @@ def visualisation():
             else:
                 fig = px.line(data, x='Datetime', y='Close')
 
-            # Add selected technical indicators to the chart
-            for indicator in indicators:
-                if indicator == 'SMA 20':
-                    fig.add_trace(go.Scatter(x=data['Datetime'], y=data['SMA_20'], name='SMA 20'))
-                elif indicator == 'EMA 20':
-                    fig.add_trace(go.Scatter(x=data['Datetime'], y=data['EMA_20'], name='EMA 20'))
+            # visualisation des indicateurs 
+            for indicateur in indicateurs:
+                if indicateur == 'MMS 20':
+                    fig.add_trace(go.Scatter(x=data['Datetime'], y=data['MMS_20'], name='MMS 20'))
+                elif indicateur == 'MME 20':
+                    fig.add_trace(go.Scatter(x=data['Datetime'], y=data['MME_20'], name='MME 20'))
 
-            # Format graph
-            fig.update_layout(title=f'{ticker} {time_period.upper()} Chart',
+            # Format du graphique
+            fig.update_layout(title=f'{ticker} {periode.upper()} Chart',
                               xaxis_title='Time',
                               yaxis_title='Price (USD)',
                               height=600)
@@ -754,7 +752,7 @@ def visualisation():
             st.dataframe(data[['Datetime', 'Open', 'High', 'Low', 'Close', 'Volume']])
 
             st.subheader('Indicateurs Techniques')
-            st.dataframe(data[['Datetime', 'SMA_20', 'EMA_20']])
+            st.dataframe(data[['Datetime', 'MMS_20', 'MME_20']])
         else:
             st.warning("Impossible de récupérer les données pour le ticker sélectionné.")
 
