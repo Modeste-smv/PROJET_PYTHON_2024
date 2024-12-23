@@ -8,39 +8,7 @@ import scipy.stats as si
 from scipy.stats import norm
 import numpy as np
 
-def monte_carlo_option_price(S, K, T, r, sigma, option_type='C', num_simulations=10000):
-    """
-    Calcule la valeur théorique d'une option selon la méthode de Monte Carlo.
 
-    Paramètres:
-    - S : Prix actuel du sous-jacent
-    - K : Prix d'exercice (strike price)
-    - T : Temps jusqu'à expiration (en années)
-    - r : Taux sans risque
-    - sigma : Volatilité implicite
-    - option_type : 'C' pour Call, 'P' pour Put
-    - num_simulations : Nombre de simulations Monte Carlo
-
-    Retourne la valeur théorique de l'option calculée via Monte Carlo.
-    """
-    dt = T / 252  # Nombre de jours de trading par an
-    discount_factor = np.exp(-r * T)  # Facteur de décote
-    
-    # Générer les chemins simulés
-    simulated_prices = np.zeros(num_simulations)
-    for i in range(num_simulations):
-        price_path = S
-        for t in range(int(T / dt)):
-            price_path *= np.exp((r - 0.5 * sigma ** 2) * dt + sigma * np.sqrt(dt) * np.random.normal())
-        simulated_prices[i] = price_path
-    
-    # Calculer la valeur de l'option
-    if option_type == 'C':
-        option_values = np.maximum(simulated_prices - K, 0)  # Call option payoff
-    elif option_type == 'P':
-        option_values = np.maximum(K - simulated_prices, 0)  # Put option payoff
-    
-    return discount_factor * np.mean(option_values)
 
 st.set_page_config(layout="wide")
 # Définir les styles CSS pour la sidebar
@@ -206,69 +174,143 @@ def pricing():
     st.title('📈 Pricing')
     st.write("Calculez la valeur théorique de votre option.")
 
+    # Connexion à la base de données
     conn = sqlite3.connect('options_data.db')
     cursor = conn.cursor()
+
+    # Récupérer la liste des symboles uniques présents dans la base
     cursor.execute("SELECT DISTINCT Symbol FROM Ticker")
     symbols_in_db = [row[0] for row in cursor.fetchall()]
     conn.close()
 
+    # Étape 1 : Sélection du symbole d'action
     if symbols_in_db:
         symbol = st.selectbox("Sélectionnez un symbole d'action :", options=symbols_in_db)
     else:
         st.warning("Aucun symbole n'est disponible dans la base de données.")
         return
 
-    # Choix de Call/Put
+    # Étape 2 : Sélection du type d'option (Call ou Put)
     option_type_display = st.selectbox("Type d'option :", options=["Call", "Put"])
     option_type_db = "C" if option_type_display == "Call" else "P"
 
-    # Sélection de la date d'expiration précise
-    expiration_date = st.date_input("Sélectionnez la date d'expiration :", value=datetime.date.today())
-
+    # Connexion à la base pour récupérer les expirations
     conn = sqlite3.connect('options_data.db')
     cursor = conn.cursor()
-    cursor.execute("""
-        SELECT DISTINCT strike 
+    cursor.execute(""" 
+        SELECT DISTINCT strftime('%Y', expiration_date) AS year
+        FROM Options 
+        WHERE ticker = ? AND optionType = ? 
+        ORDER BY year
+    """, (symbol, option_type_db))
+    years = [row[0] for row in cursor.fetchall()]
+    conn.close()
+
+    # Étape 3 : Filtrage par année
+    if years:
+        selected_year = st.selectbox("Sélectionnez l'année d'expiration :", options=years)
+    else:
+        st.warning("Aucune date d'expiration disponible pour ce symbole et ce type d'option.")
+        return
+
+    # Connexion pour récupérer les mois
+    conn = sqlite3.connect('options_data.db')
+    cursor = conn.cursor()
+    cursor.execute(""" 
+        SELECT DISTINCT strftime('%m', expiration_date) AS month
+        FROM Options 
+        WHERE ticker = ? AND optionType = ? AND strftime('%Y', expiration_date) = ?
+        ORDER BY month
+    """, (symbol, option_type_db, selected_year))
+    months = [row[0] for row in cursor.fetchall()]
+    conn.close()
+
+    # Étape 4 : Filtrage par mois
+    if months:
+        selected_month = st.selectbox("Sélectionnez le mois d'expiration :", options=months)
+    else:
+        st.warning("Aucune date d'expiration disponible pour cette année sélectionnée.")
+        return
+
+    # Connexion pour récupérer les jours
+    conn = sqlite3.connect('options_data.db')
+    cursor = conn.cursor()
+    cursor.execute(""" 
+        SELECT DISTINCT expiration_date
+        FROM Options 
+        WHERE ticker = ? AND optionType = ? 
+        AND strftime('%Y', expiration_date) = ? 
+        AND strftime('%m', expiration_date) = ?
+        ORDER BY expiration_date
+    """, (symbol, option_type_db, selected_year, selected_month))
+    days = [row[0] for row in cursor.fetchall()]
+    conn.close()
+
+    # Étape 5 : Filtrage par jour
+    if days:
+        selected_day = st.selectbox("Sélectionnez la date d'expiration :", options=days)
+    else:
+        st.warning("Aucune date d'expiration disponible pour ce mois sélectionné.")
+        return
+
+    # Connexion pour récupérer les strikes
+    conn = sqlite3.connect('options_data.db')
+    cursor = conn.cursor()
+    cursor.execute(""" 
+        SELECT DISTINCT strike
         FROM Options 
         WHERE ticker = ? AND optionType = ? AND expiration_date = ?
         ORDER BY strike
-    """, (symbol, option_type_db, expiration_date))
+    """, (symbol, option_type_db, selected_day))
     strikes = [row[0] for row in cursor.fetchall()]
     conn.close()
 
+    # Étape 6 : Filtrage par prix d'exercice (Strike)
     if strikes:
-        strike_price = st.selectbox("Sélectionnez le strike price :", options=strikes)
+        selected_strike = st.selectbox("Sélectionnez le prix d'exercice (strike) :", options=strikes)
     else:
-        st.warning("Aucun strike price disponible pour cette option et cette date.")
+        st.warning("Aucun strike disponible pour cette date sélectionnée.")
         return
 
-    st.write(f"Strike Price sélectionné : {strike_price}")
-    st.write(f"Date d'expiration sélectionnée : {expiration_date}")
+    # Récupération du dernier prix de l'option
+    conn = sqlite3.connect('options_data.db')
+    cursor = conn.cursor()
+    cursor.execute(""" 
+        SELECT lastPrice
+        FROM Options 
+        WHERE ticker = ? AND optionType = ? AND expiration_date = ? AND strike = ?
+    """, (symbol, option_type_db, selected_day, selected_strike))
+    last_price = cursor.fetchone()
+    conn.close()
 
-    data = st.session_state.get('options_data')
-    selected_row = data[(data['ticker'] == symbol) & 
-                        (data['optionType'] == option_type_db) & 
-                        (data['expiration_date'] == expiration_date) & 
-                        (data['strike'] == strike_price)].iloc[0]
+    if last_price is None:
+        st.warning("Aucun dernier prix disponible pour cette option.")
+        return
 
-    S = selected_row['underlying_price']
-    K = selected_row['strike']
-    T = (expiration_date - datetime.datetime.now().date()).days / 365
-    r = 0.05  # Taux sans risque
-    sigma = selected_row['implied_volatility']
+    last_price = last_price[0]  # Dernier prix auquel l'option s'est vendue
 
-    st.write(f"Prix du sous-jacent (S): {S}")
-    st.write(f"Strike (K): {K}")
-    st.write(f"Temps jusqu'à expiration (T): {T} ans")
-    st.write(f"Taux sans risque (r): {r}")
-    st.write(f"Volatilité implicite (σ): {sigma}")
+    # Récupération du prix du sous-jacent, volatilité et taux sans risque
+    # Pour l'exemple, prenons des valeurs hypothétiques
+    S = 150  # Prix du sous-jacent (à ajuster selon le symbole)
+    sigma = 0.25  # Volatilité (à ajuster selon les données)
+    r = 0.05  # Taux d'intérêt sans risque (à ajuster selon le contexte)
+    T = (pd.to_datetime(selected_day) - pd.to_datetime(datetime.date.today())).days / 365.0
 
-    # Calculer le prix de l'option via Black-Scholes et Monte Carlo
-    price_bs = black_scholes_price(S, K, T, r, sigma, option_type_db)
-    price_mc = monte_carlo_option_price(S, K, T, r, sigma, option_type_db)
+    # Calcul de la valeur théorique de l'option avec Monte Carlo
+    option_value = monte_carlo_option_pricing(S, selected_strike, T, r, sigma, option_type_db)
 
-    st.write(f"Prix de l'option (Black-Scholes): {price_bs}")
-    st.write(f"Prix de l'option (Monte Carlo): {price_mc}")
+    # Affichage de la comparaison
+    st.write(f"### Comparaison de la valeur théorique avec le dernier prix")
+    st.write(f"**Valeur théorique de l'option via Monte Carlo** : {option_value:.2f}")
+    st.write(f"**Dernier prix de l'option** : {last_price:.2f}")
+
+    # Calcul du ratio entre la valeur théorique et le dernier prix
+    ratio = option_value / last_price
+
+    # Comparaison et recommandation pour le vendeur
+    if ratio > 1:
+        st.write("La valeur théorique de l'option est supérieure au dernier prix de vente.")
+        st.write("Cela suggère que l'option est sous-évaluée sur le marché. Il pourrait être avantageux pour vous de vendre cette option.")
 
 def sensibilites():
     st.title('📊 Sensibilités')
