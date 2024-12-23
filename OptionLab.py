@@ -281,71 +281,68 @@ def sensibilites():
     st.write("Analyse des sensibilités (Greeks) des options.")
 
     # Connexion à la base de données
-    conn = sqlite3.connect("options_data.db")  # Remplacez par le chemin de votre base SQLite
+    conn = sqlite3.connect("options_data.db")
 
     # Chargement des données depuis la base de données
     query = "SELECT * FROM options"
     data = pd.read_sql(query, conn)
 
-    # Filtrer les données selon l'utilisateur
+    # Ajustement des filtres par l'utilisateur selon les données de l'option
+    # Sélection de l'action
     tickers = data['ticker'].unique()
     selected_ticker = st.selectbox("Sélectionnez un ticker", tickers)
     filtered_data = data[data['ticker'] == selected_ticker]
 
+    # Sélection de la date d'expiration de l'option
     expirations = filtered_data['expiration_date'].unique()
     selected_expiration = st.selectbox("Sélectionnez une date d'expiration", expirations)
     filtered_data = filtered_data[filtered_data['expiration_date'] == selected_expiration]
-
+    
+    # Sélection du prix d'exercice de l'option
     strikes = filtered_data['strike'].unique()
     selected_strike = st.selectbox("Sélectionnez un prix d'exercice (strike)", strikes)
     filtered_data = filtered_data[filtered_data['strike'] == selected_strike]
 
+    # Sélection du type de l'option 
     option_type = st.radio("Type d'option", ['call', 'put'])
     option_data = filtered_data[filtered_data['optionType'] == ('C' if option_type == 'call' else 'P')]
 
-    # Vérifier si des données sont disponibles
+    # Vérifier s'il y a des données sont disponibles
     if option_data.empty:
         st.error("Aucune donnée correspondante trouvée. Veuillez ajuster vos sélections.")
         return
 
-    # Vérifier la colonne 'impliedVolatility'
+    # Vérifier si la colonne 'impliedVolatility'contient des données
     if 'impliedVolatility' not in option_data.columns or option_data['impliedVolatility'].isnull().all():
         st.error("La colonne 'impliedVolatility' est vide ou absente. Vérifiez les données.")
         return
 
+    #Définition des paramètres
     ticker = yf.Ticker(selected_ticker)
     S0 = ticker.history(period="1d")['Close'].iloc[-1]  # Prix actuel du sous-jacent
-    T = (datetime.strptime(selected_expiration, '%Y-%m-%d').date() - datetime.now().date()).days / 365.0
-    K = selected_strike
-    sigma = option_data['impliedVolatility'].iloc[0]
-    r = st.number_input("Taux sans risque (r, en %)", value=5.0) / 100
+    T = (datetime.strptime(selected_expiration, '%Y-%m-%d').date() - datetime.now().date()).days / 365.0 #Temps avant expiration de l'option
+    K = selected_strike #Prix d'exercice
+    sigma = option_data['impliedVolatility'].iloc[0] #Volatilité 
+    r = st.number_input("Taux sans risque (r, en %)", value=5.0) / 100 
     N = st.number_input("Nombre de trajectoires Monte Carlo (N)", value=200000, step=1000)
-    M = st.number_input("Nombre de pas dans la simulation (M)", value=100, step=10)
+    M = st.number_input("Nombre de pas dans la simulation (M)", value=200, step=10)
 
-    def simulate_trajectory(S0, K, T, r, sigma, M, option_type):
-        dt = T / M
-        Z = np.random.standard_normal(M)
-        S = S0 * np.exp(np.cumsum((r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z))
-        if option_type == "call":
-            return max(S[-1] - K, 0)
-        else:
-            return max(K - S[-1], 0)
-
+    # Fonction de calcul des sensibilités
     def calcul_sensibilites(S0, K, T, r, sigma, N, M, option_type="call"):
-        dt = T / M
-        discount = np.exp(-r * T)
+        dt = T / M # Subdivision du temps restant en M intervalles
+        discount = np.exp(-r * T) # Taux d'actualisation pour ramener les payoffs futurs à leur valeur présente
 
-        # Simulation Monte Carlo
+        # Simulation Monte Carlo pour le prix de l'option
         payoffs = []
         for _ in range(int(N)):
-            Z = np.random.standard_normal(M)
-            S = S0 * np.exp(np.cumsum((r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z))
-            payoff = max(S[-1] - K, 0) if option_type == "call" else max(K - S[-1], 0)
+            Z = np.random.standard_normal(M) # Loi normale simulée M fois
+            S = S0 * np.exp(np.cumsum((r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z)) # Simulation du prix
+            payoff = max(S[-1] - K, 0) if option_type == "call" else max(K - S[-1], 0) # Calcul du payoff
             payoffs.append(payoff)
-        price = discount * np.mean(payoffs)
+        price = discount * np.mean(payoffs) # Moyenne des payoffs actualisés
 
         # Calcul des Greeks par différences finies
-        h = 1.0  # Ajustement pour des résultats stables
+        h = S0 * 0.01  # Choix d'un petit incrément pour des différences finies stables
 
         # Delta
         payoffs_up = []
@@ -385,7 +382,7 @@ def sensibilites():
             payoff_theta = max(S_theta[-1] - K, 0) if option_type == "call" else max(K - S_theta[-1], 0)
             payoffs_theta.append(payoff_theta)
         price_theta = discount * np.mean(payoffs_theta)
-        theta = (price_theta - price) / (-1 / 365)
+        theta = -abs((price_theta - price) / (-1 / 365))
 
         # Rho
         r_up = r + 0.01
@@ -402,17 +399,34 @@ def sensibilites():
 
     if st.button("Calculer"):
         price, delta, gamma, vega, theta, rho = calcul_sensibilites(S0, K, T, r, sigma, int(N), int(M), option_type)
-        st.write(f"### Résultats :")
-        st.write(f"- **Prix de l'option** : {price:.4f}")
+        st.write("### Résultats :")
         st.write(f"- **Delta** : {delta:.4f}")
         st.write(f"- **Gamma** : {gamma:.4f}")
         st.write(f"- **Vega** : {vega:.4f}")
         st.write(f"- **Theta** : {theta:.4f}")
         st.write(f"- **Rho** : {rho:.4f}")
 
+    # Tableau explicatif des Greeks
+    data = {
+        "Greek": ["Delta", "Gamma", "Vega", "Theta", "Rho"],
+        "Rôle": [
+            "Mesure la sensibilité du prix de l'option à une variation du prix de l'actif sous-jacent.",
+            "Mesure la variation de Delta en réponse à une variation du prix de l'actif sous-jacent.",
+            "Mesure la sensibilité du prix de l'option à une variation de la volatilité implicite.",
+            "Mesure la sensibilité du prix de l'option au passage du temps (valeur temps).",
+            "Mesure la sensibilité du prix de l'option à une variation du taux d'intérêt sans risque."
+        ]
+    }
+
+    # Conversion en DataFrame
+    df = pd.DataFrame(data)
+
+    # Affichage du tableau dans Streamlit
+    st.title("Récapitulatif des Greeks")
+    st.table(df)
+
     # Fermeture de la connexion à la base de données
     conn.close()
-
 
 def visualisation():
     st.title('🔍 Visualisation')
