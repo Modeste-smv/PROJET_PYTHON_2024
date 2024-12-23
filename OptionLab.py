@@ -6,7 +6,6 @@ import pandas as pd
 from importation import process_expirations
 import yfinance as yf
 
-
 st.set_page_config(layout="wide")
 # Définir les styles CSS pour la sidebar
 page_bg_image = """
@@ -131,7 +130,6 @@ def get_current_page():
 def accueil():
     st.title('🏠 Accueil')
     st.write("Bienvenue dans l'application de pricing des options !")
-
 
 def donnees():
     st.title('Données')
@@ -321,56 +319,84 @@ def sensibilites():
     K = selected_strike
     sigma = option_data['impliedVolatility'].iloc[0]
     r = st.number_input("Taux sans risque (r, en %)", value=5.0) / 100
-    N = st.number_input("Nombre de trajectoires Monte Carlo (N)", value=100000, step=1000)
+    N = st.number_input("Nombre de trajectoires Monte Carlo (N)", value=200000, step=1000)
     M = st.number_input("Nombre de pas dans la simulation (M)", value=100, step=10)
+
+    def simulate_trajectory(S0, K, T, r, sigma, M, option_type):
+        dt = T / M
+        Z = np.random.standard_normal(M)
+        S = S0 * np.exp(np.cumsum((r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z))
+        if option_type == "call":
+            return max(S[-1] - K, 0)
+        else:
+            return max(K - S[-1], 0)
 
     def calcul_sensibilites(S0, K, T, r, sigma, N, M, option_type="call"):
         dt = T / M
-        discount = np.exp(-r * dt)
+        discount = np.exp(-r * T)
 
-        # Simuler les trajectoires de prix du sous-jacent
-        S = np.zeros((N, M + 1))
-        S[:, 0] = S0
-        for t in range(1, M + 1):
-            Z = np.random.standard_normal(N)
-            S[:, t] = S[:, t - 1] * np.exp((r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z)
-
-        # Calcul des payoffs à l'échéance
-        if option_type == "call":
-            payoff = np.maximum(S[:, -1] - K, 0)
-        else:
-            payoff = np.maximum(K - S[:, -1], 0)
-
-        # Estimation du prix de l'option
-        price = discount * np.mean(payoff)
+        # Simulation Monte Carlo
+        payoffs = []
+        for _ in range(int(N)):
+            Z = np.random.standard_normal(M)
+            S = S0 * np.exp(np.cumsum((r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z))
+            payoff = max(S[-1] - K, 0) if option_type == "call" else max(K - S[-1], 0)
+            payoffs.append(payoff)
+        price = discount * np.mean(payoffs)
 
         # Calcul des Greeks par différences finies
-        h = 0.01
+        h = 1.0  # Ajustement pour des résultats stables
 
         # Delta
-        payoff_up = np.maximum((S0 + h) * np.exp((r - 0.5 * sigma**2) * T + sigma * np.sqrt(T) * np.random.standard_normal(N)) - K, 0)
-        payoff_down = np.maximum((S0 - h) * np.exp((r - 0.5 * sigma**2) * T + sigma * np.sqrt(T) * np.random.standard_normal(N)) - K, 0)
-        price_up = discount * np.mean(payoff_up)
-        price_down = discount * np.mean(payoff_down)
+        payoffs_up = []
+        payoffs_down = []
+        for _ in range(int(N)):
+            Z = np.random.standard_normal(M)
+            S_up = (S0 + h) * np.exp(np.cumsum((r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z))
+            S_down = (S0 - h) * np.exp(np.cumsum((r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z))
+            payoff_up = max(S_up[-1] - K, 0) if option_type == "call" else max(K - S_up[-1], 0)
+            payoff_down = max(S_down[-1] - K, 0) if option_type == "call" else max(K - S_down[-1], 0)
+            payoffs_up.append(payoff_up)
+            payoffs_down.append(payoff_down)
+        price_up = discount * np.mean(payoffs_up)
+        price_down = discount * np.mean(payoffs_down)
         delta = (price_up - price_down) / (2 * h)
 
         # Gamma
         gamma = (price_up - 2 * price + price_down) / (h ** 2)
 
         # Vega
-        payoff_vega = np.maximum(S0 * np.exp((r - 0.5 * (sigma + h)**2) * T + (sigma + h) * np.sqrt(T) * np.random.standard_normal(N)) - K, 0)
-        price_vega = discount * np.mean(payoff_vega)
-        vega = (price_vega - price) / h
+        sigma_up = sigma + 0.01
+        payoffs_vega = []
+        for _ in range(int(N)):
+            Z = np.random.standard_normal(M)
+            S_vega = S0 * np.exp(np.cumsum((r - 0.5 * sigma_up**2) * dt + sigma_up * np.sqrt(dt) * Z))
+            payoff_vega = max(S_vega[-1] - K, 0) if option_type == "call" else max(K - S_vega[-1], 0)
+            payoffs_vega.append(payoff_vega)
+        price_vega = discount * np.mean(payoffs_vega)
+        vega = (price_vega - price) / 0.01
 
         # Theta
-        payoff_theta = np.maximum(S0 * np.exp((r - 0.5 * sigma**2) * (T - h) + sigma * np.sqrt(T - h) * np.random.standard_normal(N)) - K, 0)
-        price_theta = discount * np.mean(payoff_theta)
-        theta = (price_theta - price) / h
+        T_down = T - (1 / 365)
+        payoffs_theta = []
+        for _ in range(int(N)):
+            Z = np.random.standard_normal(M)
+            S_theta = S0 * np.exp(np.cumsum((r - 0.5 * sigma**2) * (T_down / M) + sigma * np.sqrt(T_down / M) * Z))
+            payoff_theta = max(S_theta[-1] - K, 0) if option_type == "call" else max(K - S_theta[-1], 0)
+            payoffs_theta.append(payoff_theta)
+        price_theta = discount * np.mean(payoffs_theta)
+        theta = (price_theta - price) / (-1 / 365)
 
         # Rho
-        payoff_rho = np.maximum(S0 * np.exp((r + h - 0.5 * sigma**2) * T + sigma * np.sqrt(T) * np.random.standard_normal(N)) - K, 0)
-        price_rho = np.mean(payoff_rho) * np.exp(-(r + h) * T)
-        rho = (price_rho - price) / h
+        r_up = r + 0.01
+        payoffs_rho = []
+        for _ in range(int(N)):
+            Z = np.random.standard_normal(M)
+            S_rho = S0 * np.exp(np.cumsum((r_up - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z))
+            payoff_rho = max(S_rho[-1] - K, 0) if option_type == "call" else max(K - S_rho[-1], 0)
+            payoffs_rho.append(payoff_rho)
+        price_rho = discount * np.mean(payoffs_rho)
+        rho = (price_rho - price) / 0.01
 
         return price, delta, gamma, vega, theta, rho
 
