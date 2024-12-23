@@ -6,6 +6,11 @@ import numpy as np
 from importation import process_expirations
 import s3fs
 import yfinance as yf
+import time
+import matplotlib.pyplot as plt
+
+
+
 
 
 # Liaison à la base
@@ -232,6 +237,36 @@ page_bg_image = """
 </style>
 """
 
+ticker_names = {
+    "AAPL": "Apple",
+    "MSFT": "Microsoft",
+    "TSLA": "Tesla",
+    "JNJ": "Johnson & Johnson",
+    "JPM": "JPMorgan Chase",
+    "XOM": "ExxonMobil",
+    "PG": "Procter & Gamble",
+    "NVDA": "NVIDIA"
+}
+
+def custom_styling(df):
+    # Style for the header
+    header_props = [('background-color', '#0E3453'),  # Blue background
+                    ('color', 'white'),               # White text
+                    ('border', '1px solid black'),
+                    ('font-weight', 'bold'),
+                    ('text-align', 'center')]
+
+    # Style for the body
+    body_props = [('background-color', '#DCE6F1'),  # Light blue background
+                  ('color', 'black'),                # Black text
+                  ('border', '1px solid black'),
+                  ('text-align', 'center')]
+
+    return df.style.set_table_styles([
+        {'selector': 'thead th', 'props': header_props},
+        {'selector': 'tbody td', 'props': body_props}
+    ]).hide(axis="index")
+
 
 st.markdown(page_bg_image, unsafe_allow_html=True)
 
@@ -272,54 +307,90 @@ def accueil():
 
 
 def donnees():
-    st.title('Données')
-    st.write("Veuillez saisir les symboles (séparés par des virgules). Exemple : AAPL, MSFT, GOOGL")
+    st.markdown("""
+    <div style='text-align: center;'> <h1 style='color:#0E3453;'>Données</h1></div>
+    """, unsafe_allow_html=True)
+    st.markdown("<h6 style='margin-top:15px;color:#A75502'>Consultez les informations sur les options disponibles dans la base de données.</h6>",unsafe_allow_html=True)
 
-    # Champ pour saisir les symboles
-    symbol_input = st.text_input("Symboles", value="AAPL")
-    symbols = [sym.strip() for sym in symbol_input.split(",") if sym.strip()]
 
-    st.write("Optionnel : Sélectionnez une plage de dates (min et max) pour filtrer les dates d'expiration disponibles.")
-    # Date minimale
-    min_date = st.date_input("Date minimale", value=None)
-    # Date maximale
-    max_date = st.date_input("Date maximale", value=None)
+    # Disposer les filtres sur une même ligne
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
 
-    # Bouton pour lancer l'importation
-    if st.button("Importer les données"):
+    with col1:
+        # Récupérer les tickers uniques
+        tickers = data['ticker'].unique()
+        selected_ticker = st.selectbox("Sélectionnez un ticker", options=sorted(tickers))
 
-        if not symbols:
-            st.warning("Veuillez saisir au moins un symbole.")
-            return
+    with col2:
+        # Sélection du type d'option
+        option_type = st.selectbox("Type d'option", options=['Call', 'Put'])
 
-        st.write("Récupération des données en cours...")
-        data = process_expirations(symbols, min_date=min_date, max_date=max_date)
-        if data.empty:
-            st.warning("Aucune donnée disponible pour les symboles et la plage de dates fournie.")
-        else:
-            st.success(f"{len(data)} lignes récupérées.")
-            st.dataframe(data)
+    with col3:
+        # Sélection de l'année d'expiration
+        data['Year'] = pd.to_datetime(data['expiration_date']).dt.year
+        years = data[data['ticker'] == selected_ticker]['Year'].unique()
+        selected_year = st.selectbox("Année", options=sorted(years))
 
-            # Connexion à la base de données
-            conn = sqlite3.connect('options_data.db')
-            cursor = conn.cursor()
+    with col4:
+        # Sélection du mois d'expiration
+        data['Month'] = pd.to_datetime(data['expiration_date']).dt.month
+        months = data[(data['ticker'] == selected_ticker) & (data['Year'] == selected_year)]['Month'].unique()
+        selected_month = st.selectbox("Mois", options=sorted(months))
 
-            # Vider les tables Ticker et Options
-            cursor.execute("DELETE FROM Options")
-            cursor.execute("DELETE FROM Ticker")
-            conn.commit()
+    with col5:
+        # Sélection du jour d'expiration
+        data['Day'] = pd.to_datetime(data['expiration_date']).dt.day
+        days = data[(data['ticker'] == selected_ticker) & 
+                    (data['Year'] == selected_year) & 
+                    (data['Month'] == selected_month)]['Day'].unique()
+        selected_day = st.selectbox("Jour", options=sorted(days))
 
-            # Insérer les nouveaux symboles
-            unique_symbols = data['ticker'].unique()
-            for sym in unique_symbols:
-                cursor.execute("INSERT INTO Ticker (Symbol) VALUES (?)", (sym,))
-            conn.commit()
+    with col6:
+        # Filtre sur les strikes avec des tranches
+        strikes = data[(data['ticker'] == selected_ticker) & 
+                       (data['Year'] == selected_year) & 
+                       (data['Month'] == selected_month) & 
+                       (data['Day'] == selected_day)]['strike']
+        min_strike, max_strike = strikes.min(), strikes.max()
+        selected_strike_range = st.slider("Tranche de strikes", 
+                                          min_value=float(min_strike), 
+                                          max_value=float(max_strike), 
+                                          value=(float(min_strike), float(max_strike)))
 
-            # Insérer les données dans Options
-            data.to_sql('Options', conn, if_exists='append', index=False)
+    # Filtrer les données selon les critères sélectionnés
+    filtered_data = data[(data['ticker'] == selected_ticker) &
+                         (data['optionType'] == option_type) &
+                         (data['Year'] == selected_year) &
+                         (data['Month'] == selected_month) &
+                         (data['Day'] == selected_day) &
+                         (data['strike'] >= selected_strike_range[0]) &
+                         (data['strike'] <= selected_strike_range[1])]
 
-            st.success("Les données ont été insérées dans la base de données (base vidée avant insertion).")
-            conn.close()
+    # Suppression des colonnes inutiles
+    filtered_data = filtered_data.drop(columns=['ticker', 'Year', 'Month', 'Day', 'expiration_date'])
+
+    # Réarranger l'ordre des colonnes
+    column_order = ['optionType', 'strike', 'bid', 'ask', 'lastPrice', 'impliedVolatility']
+    filtered_data = filtered_data[column_order]
+
+    # Arrondi des colonnes numériques à deux chiffres sauf impliedVolatility
+    for col in filtered_data.columns:
+        if col != 'impliedVolatility' and filtered_data[col].dtype == 'float64':
+            filtered_data[col] = filtered_data[col].apply(lambda x: f"{x:.2f}".rstrip('0').rstrip('.') if x % 1 != 0 else int(x))
+
+    # Affichage des données filtrées avec stylisation
+    if filtered_data.empty:
+        st.warning("Aucune donnée correspondante trouvée.")
+    else:
+        st.markdown(f"<h5 style='text-align: center;margin-top: 40px'>Options disponibles pour {ticker_names.get(selected_ticker, selected_ticker)} expirant le {selected_year}-{selected_month:02d}-{selected_day:02d}</h5>", unsafe_allow_html=True)
+        styled_df = custom_styling(filtered_data)
+        st.markdown(styled_df.to_html(), unsafe_allow_html=True)
+
+
+
+
+
+
 
 def pricing():
     st.title('📈 Pricing')
@@ -549,10 +620,147 @@ def sensibilites():
 
 
 
+############################################# REAL TIME STOCK #############################################
+import streamlit as st
+import plotly.express as px
+import plotly.graph_objects as go
+import pandas as pd
+import yfinance as yf
+from datetime import datetime, timedelta
+import ta
 
+##########################################################################################
+## PART 1: Define Functions for Pulling, Processing, and Creating Technical Indicators ##
+##########################################################################################
+
+# Fetch stock data based on the ticker, period, and interval
+def fetch_stock_data(ticker, period, interval):
+    end_date = datetime.now()
+    if period == '1wk':
+        start_date = end_date - timedelta(days=7)
+        data = yf.download(ticker, start=start_date, end=end_date, interval=interval)
+    else:
+        data = yf.download(ticker, period=period, interval=interval)
+        data.columns = data.columns.get_level_values(0)
+    return data
+
+# Process data to ensure it is timezone-aware and has the correct format
+def process_data(data):
+    if data.index.tzinfo is None:
+        data.index = data.index.tz_localize('UTC')
+    data.index = data.index.tz_convert('US/Eastern')
+    data.reset_index(inplace=True)
+    data.rename(columns={'Date': 'Datetime'}, inplace=True)
+    return data
+
+# Calculate basic metrics from the stock data
+def calculate_metrics(data):
+    last_close = data['Close'].iloc[-1]
+    prev_close = data['Close'].iloc[0]
+    change = last_close - prev_close
+    pct_change = (change / prev_close) * 100
+    high = data['High'].max()
+    low = data['Low'].min()
+    volume = data['Volume'].sum()
+    return last_close, change, pct_change, high, low, volume
+
+# Add simple moving average (SMA) and exponential moving average (EMA) indicators
+def add_technical_indicators(data):
+    data['SMA_20'] = ta.trend.sma_indicator(data["Close"], window=20)
+    data['EMA_20'] = ta.trend.ema_indicator(data["Close"], window=20)
+    return data
+
+###############################################
+## PART 2: Creating the Visualisation Layout ##
+###############################################
+
+# Main function for the visualisation tab
 def visualisation():
-    st.title('🔍 Visualisation')
-    st.write("Visualisations graphiques des données et des résultats.")
+    st.title('🔍 Visualisation des données boursières')
+    st.write("Visualisez les fluctuations des prix et les indicateurs techniques pour les actions sélectionnées.")
+
+    # Création des colonnes pour le formulaire
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        ticker = st.selectbox('Ticker', options=['AAPL', 'MSFT', 'TSLA', 'JNJ', 'JPM', 'XOM', 'PG', 'NVDA'])
+
+    with col2:
+        time_period = st.selectbox('Période', options=['1d', '5d', '1mo', '3mo', '6mo', '1y', '2y', '5y', 'max'])
+
+    with col3:
+        chart_type = st.selectbox('Type de graphique', options=['Candlestick', 'Ligne'])
+
+    with col4:
+        indicators = st.multiselect('Indicateurs techniques', options=['SMA 20', 'EMA 20'])
+
+    # Mapping des intervalles
+    interval_mapping = {
+        '1d': '1m',
+        '5d': '15m',
+        '1mo': '1h',
+        '3mo': '1h',
+        '6mo': '1h',
+        '1y': '1d',
+        '2y': '1d',
+        '5y': '1wk',
+        'max': '1mo'
+    }
+
+    if st.button('Mettre à jour'):
+        interval = interval_mapping[time_period]
+        data = fetch_stock_data(ticker, time_period, interval)
+
+        if not data.empty:
+            data = process_data(data)
+            data = add_technical_indicators(data)
+            last_close, change, pct_change, high, low, volume = calculate_metrics(data)
+
+            # Display main metrics
+            st.metric(label=f"{ticker} Dernier Prix", value=f"{last_close:.2f} USD", delta=f"{change:.2f} ({pct_change:.2f}%)")
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Haut", f"{high:.2f} USD")
+            col2.metric("Bas", f"{low:.2f} USD")
+            col3.metric("Volume", f"{volume:,}")
+
+            # Plot the stock price chart
+            fig = go.Figure()
+            if chart_type == 'Candlestick':
+                fig.add_trace(go.Candlestick(x=data['Datetime'],
+                                             open=data['Open'],
+                                             high=data['High'],
+                                             low=data['Low'],
+                                             close=data['Close']))
+            else:
+                fig = px.line(data, x='Datetime', y='Close')
+
+            # Add selected technical indicators to the chart
+            for indicator in indicators:
+                if indicator == 'SMA 20':
+                    fig.add_trace(go.Scatter(x=data['Datetime'], y=data['SMA_20'], name='SMA 20'))
+                elif indicator == 'EMA 20':
+                    fig.add_trace(go.Scatter(x=data['Datetime'], y=data['EMA_20'], name='EMA 20'))
+
+            # Format graph
+            fig.update_layout(title=f'{ticker} {time_period.upper()} Chart',
+                              xaxis_title='Time',
+                              yaxis_title='Price (USD)',
+                              height=600)
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Display historical data and technical indicators
+            st.subheader('Données Historiques')
+            st.dataframe(data[['Datetime', 'Open', 'High', 'Low', 'Close', 'Volume']])
+
+            st.subheader('Indicateurs Techniques')
+            st.dataframe(data[['Datetime', 'SMA_20', 'EMA_20']])
+        else:
+            st.warning("Impossible de récupérer les données pour le ticker sélectionné.")
+
+
+
+
 
 def comparaison():
     st.title('⚖️ Comparaison')
