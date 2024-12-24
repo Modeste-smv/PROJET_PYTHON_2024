@@ -7,6 +7,7 @@ from importation import process_expirations
 import s3fs
 import yfinance as yf
 import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 
 
 # Liaison à la base
@@ -478,22 +479,40 @@ def pricing():
                     theoretical_values.append(american_option.price())
                     last_prices.append(row['lastPrice'])
 
-                # Création du graphique
-                fig, ax = plt.subplots()
+                # Création du graphique interactif avec Plotly
+                fig = go.Figure()
 
                 # Tracer les courbes des valeurs théoriques et des derniers prix
-                ax.plot(strikes, theoretical_values, label="Valeur théorique", color="turquoise")
-                ax.plot(strikes, last_prices, label="Valeur de marché", color="coral")
+                fig.add_trace(go.Scatter(
+                    x=strikes,
+                    y=theoretical_values,
+                    mode='lines+markers',
+                    name="Valeur théorique",
+                    line=dict(color='steelblue'),
+                    hovertemplate='Strike price : %{x}<br>Valeur théorique : %{y:.2f}<extra></extra>'
+                ))
 
-                # Configuration des axes et légendes
-                ax.set_xlabel("Prix d'exercice (Strike)", fontsize=8)
-                ax.set_ylabel("Prix", fontsize=8)
-                ax.set_title(f"{symbol} ({option_type}) - {expiration_date.date()}", fontsize=10)
-                ax.tick_params(axis='both', which='major', labelsize=7)
-                ax.legend(fontsize=6)
+                fig.add_trace(go.Scatter(
+                    x=strikes,
+                    y=last_prices,
+                    mode='lines+markers',
+                    name="Valeur de marché",
+                    line=dict(color='darksalmon'),
+                    hovertemplate='Strike price : %{x}<br>Valeur de marché : %{y:.2f}<extra></extra>'
+                ))
 
-                # Affichage du graphique
-                st.pyplot(fig)
+                # Mise en forme du graphique
+                fig.update_layout(
+                    title=f"{symbol} ({option_type}) - {expiration_date.date()}",
+                    xaxis_title="Prix d'exercice (Strike price)",
+                    yaxis_title="Valeur",
+                    legend=dict(font=dict(size=10)),
+                    font=dict(size=10),
+                    hovermode="x unified"
+                )
+
+                # Affichage du graphique interactif
+                st.plotly_chart(fig, use_container_width=True)
 
                 # Calcul de l'option à conseiller
                 differences = [(tv - lp) for tv, lp in zip(theoretical_values, last_prices)]
