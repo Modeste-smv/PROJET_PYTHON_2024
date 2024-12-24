@@ -290,10 +290,8 @@ if st.sidebar.button('📊 Sensibilités', key='sensibilites'):
     st.session_state.current_page = 'sensibilites'
 if st.sidebar.button('🔍 Visualisation', key='visualisation'):
     st.session_state.current_page = 'visualisation'
-if st.sidebar.button('⚖️ Comparaison', key='comparaison'):
-    st.session_state.current_page = 'comparaison'
-if st.sidebar.button('❓ Aide', key='aide'):
-    st.session_state.current_page = 'aide'
+if st.sidebar.button('❓ Documentation', key='documentation'):
+    st.session_state.current_page = 'documentation'
 
 # Fonction pour obtenir la page actuelle
 def get_current_page():
@@ -310,7 +308,7 @@ def accueil():
 
 def donnees():
     st.markdown("""
-    <div style='text-align: center;'> <h1 style='color:#0E3453;'>Données</h1></div>
+    <div style='text-align: center;'> <h1 style='color:#0E3453;'>Options Disponibles</h1></div>
     """, unsafe_allow_html=True)
     st.markdown("<h6 style='margin-top:15px;color:#A75502'>Consultez les informations sur les options disponibles dans la base de données.</h6>",unsafe_allow_html=True)
 
@@ -393,10 +391,9 @@ def donnees():
 
 
 
-
 def pricing():
-    st.title('📈 Pricing')
-    st.write("Calculez la valeur théorique de votre option.")
+    st.markdown("""<div style='text-align: center;'> <h1 style='color:#0E3453;'>Pricing des Options</h1></div>""", unsafe_allow_html=True)
+    st.markdown("<h6 style='margin-top:15px;color:#A75502'>Calculez ou modélisez les valeurs théoriques des options selon votre rôle.</h6>",unsafe_allow_html=True)
 
     # Vérifier si la base de données est chargée
     if data.empty:
@@ -406,8 +403,15 @@ def pricing():
     # Récupérer les symboles uniques disponibles
     symbols_in_db = data['ticker'].unique().tolist()
 
-    # Choix du rôle : Acheteur ou Vendeur
-    role = st.radio("Êtes-vous un acheteur ou un vendeur ?", options=["Acheteur", "Vendeur"])
+    # Utiliser un sélecteur unique pour choisir le rôle
+    role = st.radio(
+        "Veuillez sélectionner votre rôle :",
+        options=["Acheteur", "Vendeur"],
+        index=0,
+        horizontal=True
+    )
+
+    st.write(f"Rôle sélectionné : **{role}**")
 
     if role == "Vendeur":
         # Si c'est un vendeur, on demande les paramètres nécessaires
@@ -445,7 +449,7 @@ def pricing():
 
         # Filtrer par mois
         df_month = df_year[df_year['Month'] == selected_month]
-        available_dates = sorted(df_month['expiration_date'].unique())
+        available_dates = sorted(df_month['expiration_date'].dt.strftime('%Y-%m-%d').unique())
         expiration_date = st.selectbox("Date d'expiration", options=available_dates)
 
         # Saisie du strike price (prix d'exercice)
@@ -461,164 +465,303 @@ def pricing():
         # Exemple avec un selectbox (plus sûr si irrégulier) :
         strike_price = st.selectbox("Prix d'exercice (Strike price)", options=all_strikes)
 
-    selected_row = df_symbol[
-        (df_symbol['expiration_date'] == expiration_date) &
-        (df_symbol['strike'] == strike_price) &
-        (df_symbol['optionType'] == option_type)
-    ]
-    selected_row = selected_row.iloc[0]  # Récupère la première ligne
+        selected_row = df_symbol[
+            (df_symbol['expiration_date'] == expiration_date) &
+            (df_symbol['strike'] == strike_price) &
+            (df_symbol['optionType'] == option_type)
+        ]
+        selected_row = selected_row.iloc[0]  # Récupère la première ligne
     
-    # Bouton pour calculer la valeur théorique
-    if st.button("Calculer la valeur de l'option"):
-        # Récupérer les données pour AAPL
-        ticker = yf.Ticker(symbol)
-        # Méthode 1 : Récupérer le prix actuel directement
-        S0 = ticker.history(period="1d")['Close'].iloc[-1]
-        K = selected_row['strike']
-        T = (pd.to_datetime(selected_row['expiration_date'], unit='ms') - pd.Timestamp.now()).days / 365.0
-        r = 0.05  # Exemple de taux sans risque
-        sigma = selected_row['impliedVolatility']
-        M = 50  # Nombre de pas
-        simulations = 10000
+        # Bouton pour calculer la valeur théorique
+        if st.button("Calculer la valeur de l'option"):
+            # Récupérer les données pour AAPL
+            ticker = yf.Ticker(symbol)
+            # Méthode 1 : Récupérer le prix actuel directement
+            S0 = ticker.history(period="1d")['Close'].iloc[-1]
+            K = selected_row['strike']
+            T = (pd.to_datetime(selected_row['expiration_date'], unit='ms') - pd.Timestamp.now()).days / 365.0
+            r = 0.05  # Exemple de taux sans risque
+            sigma = selected_row['impliedVolatility']
+            M = 50  # Nombre de pas
+            simulations = 10000
 
-        american_option = AmericanOptionsLSMC(option_type.lower(), S0, K, T, M, r, 0, sigma, simulations)
-        option_price = american_option.price()
+            american_option = AmericanOptionsLSMC(option_type.lower(), S0, K, T, M, r, 0, sigma, simulations)
+            option_price = american_option.price()
 
-        st.success(f"Valeur théorique de l'option américaine : {option_price:.2f} €")
-        st.write(selected_row['lastPrice'])
+            # Mise en forme visuelle des résultats
+            last_price=selected_row['lastPrice']
+            if last_price > option_price:
+                conseil = f"Nous vous conseillons de <b style='color:#A75502;'>vendre cette option</b>, car son dernier prix de marché (<b>{last_price:.2f} €</b>) est supérieur à sa valeur théorique estimée."
+            else:
+                conseil = f"Cette option semble sous-évaluée. Il pourrait être préférable d'attendre une augmentation de son prix de marché."
+            resultat_html = f"""
+            <div style="text-align:center; margin-top:20px; padding:20px; background-color:#f9f9f9; border: 1px solid #ddd; border-radius:15px;">
+                <h4 style="color:#A75502; font-size:20px; font-weight:bold; margin-bottom:10px;">Résultat de l'estimation</h4>
+                <p style="font-size:15px; color:#0E3453; line-height:1.5;">
+                    La valeur théorique de l'option américaine est estimée à <b style="color:#A75502;">{option_price:.2f} €</b>.
+                </p>
+                <p style="font-size:15px; color:#0E3453; line-height:1.5;">
+                    {conseil}
+                </p>
+                <p style="font-size:15px; color:#0E3453; line-height:1.5;">
+                    Rappel : Le dernier prix de marché enregistré est de <b style="color:#0E3453;font-weight:bold">{last_price:.2f} €</b>.
+                </p>
+            </div>
+            """
+            st.markdown(resultat_html, unsafe_allow_html=True)
+    
+    elif role == "Acheteur":
+        # Partie acheteur
+        if symbols_in_db:
+            symbol = st.selectbox("Choisissez un symbole d'actif", options=symbols_in_db)
+        else:
+            st.warning("Aucun symbole n'est disponible dans la base de données.")
+            return
+
+        # Choix du type d'option
+        option_type = st.selectbox("Type d'option :", options=["Call", "Put"])
+
+        # Filtrer les données pour récupérer les expirations disponibles
+        df_symbol2 = data[(data['ticker'] == symbol) & (data['optionType'] == option_type)]
+        if df_symbol2.empty:
+            st.warning(f"Aucune donnée disponible pour {symbol} ({option_type}).")
+            return
+
+        # Extraire et trier les dates d'expiration disponibles
+        df_symbol2['expiration_date'] = pd.to_datetime(df_symbol2['expiration_date'])
+        df_exp = df_symbol2[['expiration_date']].drop_duplicates().sort_values('expiration_date')
+
+        # Sélection des années
+        df_exp['Year'] = df_exp['expiration_date'].dt.year
+        years = sorted(df_exp['Year'].unique())
+        selected_year = st.selectbox("Année d'expiration", options=years)
+
+        # Filtrer par année
+        df_year = df_exp[df_exp['Year'] == selected_year]
+        df_year['Month'] = df_year['expiration_date'].dt.month
+        months = sorted(df_year['Month'].unique())
+        selected_month = st.selectbox("Mois d'expiration", options=months, format_func=lambda m: f"{m:02d}")
+
+        # Filtrer par mois
+        df_month = df_year[df_year['Month'] == selected_month]
+        available_dates = sorted(df_month['expiration_date'].dt.strftime('%Y-%m-%d').unique())
+        expiration_date = st.selectbox("Date d'expiration", options=available_dates)
+
+        # Filtrer les options disponibles pour la date choisie
+        df_filtered = df_symbol2[df_symbol2['expiration_date'] == expiration_date]
+
+        # Bouton pour modéliser les valeurs des options
+        if st.button("Modéliser les valeurs des options"):
+
+            # Graphique : Valeurs théoriques et derniers prix en fonction du strike price
+            if not df_filtered.empty:
+                strikes = df_filtered['strike'].unique()
+                theoretical_values = []
+                last_prices = []
+
+                # Calcul des valeurs théoriques pour chaque strike
+                for _, row in df_filtered.iterrows():
+                    S0 = yf.Ticker(symbol).history(period="1d")['Close'].iloc[-1]
+                    K = row['strike']
+                    T = (pd.to_datetime(row['expiration_date']) - pd.Timestamp.now()).days / 365.0
+                    r = 0.05  # Taux sans risque (exemple)
+                    sigma = row['impliedVolatility']
+                    M = 50  # Nombre de pas
+                    simulations = 10000
+
+                    american_option = AmericanOptionsLSMC(option_type.lower(), S0, K, T, M, r, 0, sigma, simulations)
+                    theoretical_values.append(american_option.price())
+                    last_prices.append(row['lastPrice'])
+
+                # Création du graphique interactif avec Plotly
+                fig = go.Figure()
+
+                # Tracer les courbes des valeurs théoriques et des derniers prix
+                fig.add_trace(go.Scatter(
+                    x=strikes,
+                    y=theoretical_values,
+                    mode='lines+markers',
+                    name="Valeur théorique",
+                    line=dict(color='#0E3453'),
+                    hovertemplate='Strike price : %{x}<br>Valeur théorique : %{y:.2f}<extra></extra>'
+                ))
+
+                fig.add_trace(go.Scatter(
+                    x=strikes,
+                    y=last_prices,
+                    mode='lines+markers',
+                    name="Valeur de marché",
+                    line=dict(color='#A75502'),
+                    hovertemplate='Strike price : %{x}<br>Valeur de marché : %{y:.2f}<extra></extra>'
+                ))
+
+                # Mise en forme du graphique
+                fig.update_layout(
+                    title=f"{symbol} ({option_type}) - {expiration_date}",
+                    xaxis_title="Prix d'exercice (Strike price)",
+                    yaxis_title="Valeur",
+                    legend=dict(font=dict(size=10)),
+                    font=dict(size=10),
+                    hovermode="x unified"
+                )
+
+                # Affichage du graphique interactif
+                st.plotly_chart(fig, use_container_width=True)
+
+                # Calcul de l'option à conseiller
+                differences = [(tv - lp) for tv, lp in zip(theoretical_values, last_prices)]
+                max_diff_index = differences.index(max(differences))
+                best_strike = strikes[max_diff_index]
+                best_theoretical_value = theoretical_values[max_diff_index]
+                best_last_price = last_prices[max_diff_index]
+
+                # Message de recommandation
+                conseil_html = f"""
+                <div style="text-align:center; margin-top:20px; padding:20px; background-color:#f9f9f9; border: 1px solid #ddd; border-radius:15px;">
+                    <h4 style="color:#A75502; font-size:20px; font-weight:bold; margin-bottom:10px;">Recommandation d'Option</h4>
+                    <p style="font-size:15px; color:#0E3453; line-height:1.5;">
+                        L'option avec le <b>prix d'exercice (strike)</b> de <b style="color:#A75502;">{best_strike}</b> expirant le <b style="color:#A75502;">{expiration_date}</b> est fortement recommandée.<br>
+                        Cette option est la plus sous-évaluée, avec une valeur théorique de <span style="color:#0E3453;font-weight:bold">{best_theoretical_value:.2f}</span> contre un dernier prix de marché de <span style="color:#A75502;font-weight:bold">{best_last_price:.2f}</span>.
+                    </p>
+                </div>
+                """
+                st.markdown(conseil_html, unsafe_allow_html=True)
+
+
+
+
     else:
-        # Si c'est un acheteur, on traitera plus tard
-        st.write("La fonctionnalité pour les acheteurs sera implémentée ultérieurement.")
+        st.warning("Aucune option disponible pour cette date d'expiration.")
 
 ##################################### SENSIBILITE ##############################################
 def sensibilites():
-    st.title('📊 Sensibilités')
-    st.write("Analyse des sensibilités (Greeks) des options.")
+    st.markdown("""
+    <div style='text-align: center;'><h1 style='color:#0E3453;'>Analyse des Sensibilités</h1></div>
+    """, unsafe_allow_html=True)
+    st.markdown("<h6 style='margin-top:15px;color:#A75502'>Évaluez les paramètres clés (Greeks) pour une meilleure compréhension de vos options.</h6>",unsafe_allow_html=True)
 
-    # Filtrer les données selon les sélections de l'utilisateur
+    
+    # Sélection du ticker
     tickers = data['ticker'].unique()
     selected_ticker = st.selectbox("Sélectionnez un ticker", tickers)
-    filtered_data = data[data['ticker'] == selected_ticker]
 
-    # Sélection de l'année
-    filtered_data['Year'] = filtered_data['expiration_date'].dt.year
-    years = filtered_data['Year'].unique()
-    selected_year = st.selectbox("Sélectionnez une année d'expiration", sorted(years))
+    # Sélection du type d'option
+    option_type = st.selectbox("Type d'option :", options=["Call", "Put"])
 
-    # Filtrer les données par année sélectionnée
-    filtered_year_data = filtered_data[filtered_data['Year'] == selected_year]
+    # Filtrer les données pour récupérer les expirations disponibles
+    df_symbol = data[(data['ticker'] == selected_ticker) & (data['optionType'] == option_type)]
+    if df_symbol.empty:
+        st.warning(f"Aucune donnée disponible pour {selected_ticker} ({option_type}).")
+        return
 
-    # Sélection du mois
-    filtered_year_data['Month'] = filtered_year_data['expiration_date'].dt.month
-    months = filtered_year_data['Month'].unique()
-    selected_month = st.selectbox("Sélectionnez un mois d'expiration", sorted(months))
+    # Sélection de l'année d'expiration
+    df_symbol['expiration_date'] = pd.to_datetime(df_symbol['expiration_date'])
+    df_symbol['Year'] = df_symbol['expiration_date'].dt.year
+    years = sorted(df_symbol['Year'].unique())
+    selected_year = st.selectbox("Sélectionnez l'année d'expiration", years)
 
-    # Filtrer les données par mois sélectionné
-    filtered_month_data = filtered_year_data[filtered_year_data['Month'] == selected_month]
+    # Filtrer par année
+    df_year = df_symbol[df_symbol['Year'] == selected_year]
 
-    # Sélection de la date précise
-    available_dates = filtered_month_data['expiration_date'].dt.date.unique()
-    selected_date = st.selectbox("Sélectionnez une date d'expiration", sorted(available_dates))
+    # Sélection du mois d'expiration
+    df_year['Month'] = df_year['expiration_date'].dt.month
+    months = sorted(df_year['Month'].unique())
+    selected_month = st.selectbox("Sélectionnez le mois d'expiration", months, format_func=lambda m: f"{m:02d}")
 
-    # Affiner les données pour la date sélectionnée
-    filtered_data = filtered_month_data[filtered_month_data['expiration_date'].dt.date == selected_date]
+    # Filtrer par mois
+    df_month = df_year[df_year['Month'] == selected_month]
 
-    # Sélection du strike
-    strikes = filtered_data['strike'].unique()
+    # Sélection des dates exactes d'expiration
+    available_dates = sorted(df_month['expiration_date'].dt.strftime('%Y-%m-%d').unique())
+    selected_expiration = st.selectbox("Sélectionnez une date d'expiration", available_dates)
+
+    # Filtrer les strikes disponibles
+    df_filtered = df_month[df_month['expiration_date'] == selected_expiration]
+    strikes = sorted(df_filtered['strike'].unique())
     selected_strike = st.selectbox("Sélectionnez un prix d'exercice (strike)", strikes)
 
-    # Type d'option
-    option_type = st.radio("Type d'option", ['Call', 'Put'])
-
-    # Filtrer les données finales
-    option_data = filtered_data[
-        (filtered_data['strike'] == selected_strike) &
-        (filtered_data['optionType'] == option_type)
-    ]
-
-    # Vérifier si des données sont disponibles
-    if option_data.empty:
+    # Vérification des données correspondantes
+    if df_filtered.empty:
         st.error("Aucune donnée correspondante trouvée. Veuillez ajuster vos sélections.")
         return
 
-    # Vérifier la colonne 'impliedVolatility'
-    if 'impliedVolatility' not in option_data.columns or option_data['impliedVolatility'].isnull().all():
-        st.error("La colonne 'impliedVolatility' est vide ou absente. Vérifiez les données.")
-        return
-
-    # Identifier la ligne exacte
-    selected_row = option_data.iloc[0]
-
-    # Récupération des paramètres à partir de la ligne sélectionnée
-    ticker = yf.Ticker(selected_ticker)
-    try:
-        S0 = ticker.history(period="1d")['Close'].iloc[-1]  # Prix actuel du sous-jacent
-    except Exception as e:
-        st.error(f"Impossible de récupérer le prix actuel : {e}")
-        return
-
-    T = (pd.to_datetime(selected_date) - pd.Timestamp.now()).days / 365.0  # Maturité
-    K = selected_row['strike']
-    sigma = selected_row['impliedVolatility']
+    # Définir les autres paramètres
     r = st.number_input("Taux sans risque (r, en %)", value=5.0) / 100
-    N = st.number_input("Nombre de trajectoires Monte Carlo (N)", value=100000, step=1000)
-    M = st.number_input("Nombre de pas dans la simulation (M)", value=100, step=10)
+    N = st.number_input("Nombre de trajectoires Monte Carlo (N)", value=200000, step=1000)
+    M = st.number_input("Nombre de pas dans la simulation (M)", value=200, step=10)
 
-    # Fonction pour calculer les sensibilités
+    # Paramètres pour le calcul
+    S0 = data.loc[data['ticker'] == selected_ticker, 'lastPrice'].iloc[0]
+    T = (pd.to_datetime(selected_expiration) - pd.Timestamp.now()).days / 365.0
+    K = selected_strike
+    sigma = df_filtered['impliedVolatility'].iloc[0]
+
+    # Tableau récapitulatif initial
+    greek_data = {
+        "Greek": ["Delta", "Gamma", "Vega", "Theta", "Rho"],
+        "Rôle": [
+            "Sensibilité du prix de l'option à une variation du prix de l'actif sous-jacent.",
+            "Variation de Delta en réponse à une variation du prix de l'actif sous-jacent.",
+            "Sensibilité du prix de l'option à une variation de la volatilité implicite.",
+            "Sensibilité du prix de l'option au passage du temps.",
+            "Sensibilité du prix de l'option à une variation du taux d'intérêt sans risque."
+        ],
+        "Estimation": ["-", "-", "-", "-", "-"]  # Placeholder pour les valeurs
+    }
+    df_greeks = pd.DataFrame(greek_data)
+
+    # Fonction de calcul des sensibilités
     def calcul_sensibilites(S0, K, T, r, sigma, N, M, option_type="call"):
         dt = T / M
-        discount = np.exp(-r * dt)
+        discount = np.exp(-r * T)
 
-        # Simuler les trajectoires
-        S = np.zeros((N, M + 1))
-        S[:, 0] = S0
-        for t in range(1, M + 1):
-            Z = np.random.standard_normal(N)
-            S[:, t] = S[:, t - 1] * np.exp((r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z)
+        # Simulation Monte Carlo pour le prix de l'option
+        payoffs = []
+        for _ in range(int(N)):
+            Z = np.random.standard_normal(M)
+            S = S0 * np.exp(np.cumsum((r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z))
+            payoff = max(S[-1] - K, 0) if option_type == "call" else max(K - S[-1], 0)
+            payoffs.append(payoff)
+        price = discount * np.mean(payoffs)
 
-        # Payoff
-        if option_type == "call":
-            payoff = np.maximum(S[:, -1] - K, 0)
-        else:
-            payoff = np.maximum(K - S[:, -1], 0)
-
-        # Prix
-        price = discount * np.mean(payoff)
-
-        # Greeks
-        h = 0.01
+        # Calcul des Greeks
+        h = S0 * 0.01  # Incrément pour différences finies
 
         # Delta
-        S_up = S0 + h
-        S_down = S0 - h
-        payoff_up = np.maximum(S_up - K, 0) if option_type == "call" else np.maximum(K - S_up, 0)
-        payoff_down = np.maximum(S_down - K, 0) if option_type == "call" else np.maximum(K - S_down, 0)
-        delta = (np.mean(payoff_up) - np.mean(payoff_down)) / (2 * h)
+        price_up = discount * np.mean([max((S0 + h) * np.exp((r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z).sum() - K, 0) for Z in np.random.standard_normal((int(N), M))])
+        price_down = discount * np.mean([max((S0 - h) * np.exp((r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z).sum() - K, 0) for Z in np.random.standard_normal((int(N), M))])
+        delta = (price_up - price_down) / (2 * h)
 
         # Gamma
-        gamma = (np.mean(payoff_up) - 2 * price + np.mean(payoff_down)) / (h ** 2)
+        gamma = (price_up - 2 * price + price_down) / (h ** 2)
 
         # Vega
-        sigma_up = sigma + h
-        payoff_vega = np.maximum(S0 * np.exp((r - 0.5 * sigma_up**2) * T + sigma_up * np.sqrt(T) * np.random.standard_normal(N)) - K, 0)
-        vega = (np.mean(payoff_vega) - price) / h
+        sigma_up = sigma + 0.01
+        price_vega = discount * np.mean([max(S0 * np.exp((r - 0.5 * sigma_up**2) * dt + sigma_up * np.sqrt(dt) * Z).sum() - K, 0) for Z in np.random.standard_normal((int(N), M))])
+        vega = (price_vega - price) / 0.01
 
         # Theta
-        T_down = T - h
-        payoff_theta = np.maximum(S0 * np.exp((r - 0.5 * sigma**2) * T_down + sigma * np.sqrt(T_down) * np.random.standard_normal(N)) - K, 0)
-        theta = (np.mean(payoff_theta) - price) / h
+        T_down = T - (1 / 365)
+        price_theta = discount * np.mean([max(S0 * np.exp((r - 0.5 * sigma**2) * (T_down / M) + sigma * np.sqrt(T_down / M) * Z).sum() - K, 0) for Z in np.random.standard_normal((int(N), M))])
+        theta = -abs((price_theta - price) / (1 / 365))
 
-        return price, delta, gamma, vega, theta
+        # Rho
+        r_up = r + 0.01
+        price_rho = discount * np.mean([max(S0 * np.exp((r_up - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z).sum() - K, 0) for Z in np.random.standard_normal((int(N), M))])
+        rho = (price_rho - price) / 0.01
 
-    # Calculer et afficher les résultats
+        return price, delta, gamma, vega, theta, rho
+
+    # Calculer les sensibilités
     if st.button("Calculer"):
-        price, delta, gamma, vega, theta = calcul_sensibilites(S0, K, T, r, sigma, int(N), int(M), option_type)
-        st.write("### Résultats :")
-        st.write(f"- **Prix de l'option** : {price:.4f}")
-        st.write(f"- **Delta** : {delta:.4f}")
-        st.write(f"- **Gamma** : {gamma:.4f}")
-        st.write(f"- **Vega** : {vega:.4f}")
-        st.write(f"- **Theta** : {theta:.4f}")
+        price, delta, gamma, vega, theta, rho = calcul_sensibilites(S0, K, T, r, sigma, int(N), int(M), option_type.lower())
+
+        # Mettre à jour le tableau avec les estimations
+        df_greeks["Estimation"] = [f"{delta:.4f}", f"{gamma:.4f}", f"{vega:.4f}", f"{theta:.4f}", f"{rho:.4f}"]
+    # Afficher le tableau à jour (initial ou après calcul)
+    styled_df = custom_styling(df_greeks)
+    st.markdown(styled_df.to_html(), unsafe_allow_html=True)
+
 
 
 
@@ -759,12 +902,7 @@ def visualisation():
 
 
 
-
-def comparaison():
-    st.title('⚖️ Comparaison')
-    st.write("Comparaison des modèles de pricing des options.")
-
-def aide():
+def documentation():
     st.title('❓ Aide')
     st.write("Documentation et assistance pour l'utilisation de l'application.")
 
@@ -775,8 +913,7 @@ functions = {
     "pricing": pricing,
     "sensibilites": sensibilites,
     "visualisation": visualisation,
-    "comparaison": comparaison,
-    "aide": aide,
+    "documentation": documentation,
 }
 
 
