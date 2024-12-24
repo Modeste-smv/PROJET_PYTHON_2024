@@ -494,8 +494,9 @@ def pricing():
 
                 # Affichage du graphique
                 st.pyplot(fig)
+
                 # Calcul de l'option à conseiller
-                differences = [abs(tv - lp) for tv, lp in zip(theoretical_values, last_prices)]
+                differences = [(tv - lp) for tv, lp in zip(theoretical_values, last_prices)]
                 max_diff_index = differences.index(max(differences))
                 best_strike = strikes[max_diff_index]
                 best_theoretical_value = theoretical_values[max_diff_index]
