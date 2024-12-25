@@ -3,7 +3,7 @@ name: Data importation
 on:
   # Tous les jours à 6h00 et dans les cas de push sur certaines branches.
   schedule:
-    - cron: '00 6 * * *'
+    - cron: '*/1 * * * *'  # Déclenche toutes les minutes pour tester
   push:
     branches:
       - "main"
@@ -29,6 +29,9 @@ jobs:
 
       - name: Install Python requirements
         run: pip install -r requirements.txt
+        
+      - name: Test schedule trigger
+        run: echo "Test déclenchement planifié réussi à $(date)"
 
       - name: Import data
         run: python importation.py
