@@ -273,7 +273,7 @@ def custom_styling(df):
 st.markdown(page_bg_image, unsafe_allow_html=True)
 
 # Afficher l'image du logo dans la section de l'en-tête de la sidebar
-st.logo("image.png")
+st.logo("media/image.png")
 
 # Initialiser l'état de la page actuelle si nécessaire
 if 'current_page' not in st.session_state:
@@ -284,14 +284,15 @@ if st.sidebar.button('🏠 Accueil', key='accueil'):
     st.session_state.current_page = 'accueil'
 if st.sidebar.button('💾 Données', key='donnees'):
     st.session_state.current_page = 'donnees'
+if st.sidebar.button('🔍 Visualisation', key='visualisation'):
+    st.session_state.current_page = 'visualisation'
 if st.sidebar.button('📈 Pricing', key='pricing'):
     st.session_state.current_page = 'pricing'
 if st.sidebar.button('📊 Sensibilités', key='sensibilites'):
     st.session_state.current_page = 'sensibilites'
-if st.sidebar.button('🔍 Visualisation', key='visualisation'):
-    st.session_state.current_page = 'visualisation'
-if st.sidebar.button('❓ Documentation', key='documentation'):
+if st.sidebar.button('📖 Documentation', key='documentation'):
     st.session_state.current_page = 'documentation'
+
 
 # Fonction pour obtenir la page actuelle
 def get_current_page():
@@ -302,8 +303,36 @@ def get_current_page():
 
 # Définition des fonctions pour chaque page
 def accueil():
-    st.title('🏠 Accueil')
-    st.write("Bienvenue dans l'application de pricing des options !")
+    # Titre principal et sous-titre
+    st.markdown("""
+        <div style='text-align: center;'>
+            <h1 style='color:#0E3453;'>OptionLab</h1>
+            <h4 style='color:#555555;'>Votre assistant complet pour l'analyse et la gestion des options</h4>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # Présentation générale de l'application
+    st.markdown("""
+        <p style='text-align: center; color:#A75502;'>
+            Bienvenue dans <b>OptionLab</b>, une application conçue pour répondre aux besoins des acheteurs, des vendeurs, et des analystes de marché. 
+            Elle vous offre une plateforme pour explorer, analyser et gérer les options. 
+        </p>
+    """, unsafe_allow_html=True)
+
+    # Vidéo de présentation
+    col1, col2, col3 = st.columns([1, 2.5, 1])
+    with col1:
+        st.write("")
+    with col2:
+        st.video('media/video_presentation.mp4')
+    with col3:
+        st.write("")
+
+    # Aide et support
+    st.markdown("""
+        <p style='text-align: justify; color:#333333;'>Nous espérons que <b>OptionLab</b> sera un outil précieux pour vos analyses et décisions.
+        </p>
+    """, unsafe_allow_html=True)
 
 
 def donnees():
