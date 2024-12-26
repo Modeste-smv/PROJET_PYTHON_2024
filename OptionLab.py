@@ -21,7 +21,7 @@ data = pd.read_parquet("s3://modestesmv/database.parquet", filesystem=fs)
 # Conversion explicite de la colonne expiration_date en datetime
 data['expiration_date'] = pd.to_datetime(data['expiration_date'], errors='coerce')
 
-# SIMULATION MONTE CARLO 
+# Fonction de simulation de Monte Carlo pour calcul de valeurs théoriques des options 
 def monte_carlo_option_price(S, K, T, r, sigma, option_type='C', num_simulations=10000):
 
     """
@@ -88,7 +88,20 @@ def monte_carlo_option_price(S, K, T, r, sigma, option_type='C', num_simulations
 
     return discount_factor * np.mean(option_values)
 
-
+# Fonction pour récupérer les taux sans risque des bons du trésor depuis Yahoo Finance
+def get_risk_free_rates():
+    tickers = {
+        "Bon du trésor américain à 13 semaines": "^IRX",
+        "Bon du trésor américain à 5 ans": "^FVX",
+        "Bon du trésor américain à 10 ans": "^TNX",
+        "Bon du trésor américain à 30 ans": "^TYX"
+    }
+    rates = {}
+    for name, ticker in tickers.items():
+        data = yf.download(ticker, period="1d", interval="1d")
+        if not data.empty:
+            rates[name] = data["Close"].iloc[-1] / 100  # Convertir en taux décimal
+    return rates
 
 
 
@@ -582,7 +595,8 @@ def pricing():
             S0 = ticker.history(period="1d")['Close'].iloc[-1]
             K = selected_row['strike']
             T = (pd.to_datetime(selected_row['expiration_date'], unit='ms') - pd.Timestamp.now()).days / 365.0
-            r = 0.05  # Exemple de taux sans risque
+            risk_free_rates = get_risk_free_rates()
+            r = risk_free_rates['Bon du trésor américain à 5 ans']  # Choix arbitraire parmi les choix de taux sans risque possibles
             sigma = selected_row['impliedVolatility']
             M = 50  # Nombre de pas
             simulations = 10000
@@ -660,13 +674,13 @@ def pricing():
                 strikes = df_filtered['strike'].unique()
                 theoretical_values = []
                 last_prices = []
-
+                risk_free_rates = get_risk_free_rates()
                 # Calcul des valeurs théoriques pour chaque strike
                 for _, row in df_filtered.iterrows():
                     S0 = yf.Ticker(symbol).history(period="1d")['Close'].iloc[-1]
                     K = row['strike']
                     T = (pd.to_datetime(row['expiration_date']) - pd.Timestamp.now()).days / 365.0
-                    r = 0.05  # Taux sans risque (exemple)
+                    r = risk_free_rates['Bon du trésor américain à 5 ans']  # Choix arbitraire parmi les choix de taux sans risque possibles
                     sigma = row['impliedVolatility']
                     M = 50  # Nombre de pas
                     simulations = 10000
@@ -711,7 +725,7 @@ def pricing():
                 st.plotly_chart(fig, use_container_width=True)
 
                 # Calcul de l'option à conseiller
-                differences = [(tv - lp) for tv, lp in zip(theoretical_values, last_prices)]
+                differences = [(lp - tv) for tv, lp in zip(theoretical_values, last_prices)]
                 max_diff_index = differences.index(max(differences))
                 best_strike = strikes[max_diff_index]
                 best_theoretical_value = theoretical_values[max_diff_index]
@@ -732,6 +746,7 @@ def pricing():
 
     else:
         st.warning("Aucune option disponible pour cette date d'expiration.")
+
 
 ##################################### ANALYSE DES SENSIBILITES ##############################################
 
@@ -784,33 +799,10 @@ def sensibilites():
     if df_filtered.empty:
         st.error("Aucune donnée correspondante trouvée. Veuillez ajuster vos sélections.")
         return
-    
-    # Fonction pour récupérer les taux sans risque depuis Yahoo Finance
-    def get_risk_free_rates():
-        tickers = {
-            "13 WEEK TREASURY BILL": "^IRX",
-            "Treasury Yield 5 Years": "^FVX",
-            "CBOE Interest Rate 10 Year T No": "^TNX",
-            "Treasury Yield 30 Years": "^TYX"
-        }
-        rates = {}
-        for name, ticker in tickers.items():
-            data = yf.download(ticker, period="1d", interval="1d")
-            if not data.empty:
-                rates[name] = data["Close"].iloc[-1] / 100  # Convertir en taux décimal
-        return rates
-
-    # Récupérer les taux sans risque
-    risk_free_rates = get_risk_free_rates()
-    if not risk_free_rates:
-        st.error("Impossible de récupérer les taux sans risque depuis Yahoo Finance.")
-        return
-
-    # Sélection du taux sans risque
-    selected_rate = st.selectbox("Sélectionnez un taux sans risque", options=list(risk_free_rates.keys()))
-    r = risk_free_rates[selected_rate]
 
     # Définir les autres paramètres
+    risk_free_rates = get_risk_free_rates()
+    r = risk_free_rates['Bon du trésor américain à 5 ans']  # Choix arbitraire parmi les choix de taux sans risque possibles
     N = st.number_input("Nombre de trajectoires Monte Carlo (N)", value=10000, step=1000)
     M = st.number_input("Nombre de pas dans la simulation (M)", value=50, step=10)
 
@@ -1002,12 +994,31 @@ def visualisation():
         else:
             st.warning("Impossible de récupérer les données pour le ticker sélectionné.")
 
-
-
-
 def documentation():
     st.title('❓ Aide')
-    st.write("Documentation et assistance pour l'utilisation de l'application.")
+
+    # Texte explicatif
+    st.markdown(
+        """
+        **Si vous avez besoin d'aide pour utiliser l'application ou souhaitez en savoir plus sur son fonctionnement sous-jacent, veuillez cliquer ci-dessous.**
+        """
+    )
+
+    # Bouton pour télécharger un document d'aide
+    with open("Documentation_OptionLab.pdf", "rb") as file:
+    # Encodage du fichier PDF en base64
+    encoded = base64.b64encode(file.read()).decode("utf-8")
+    st.markdown(
+        f"""
+        <div style="text-align: center;">
+            <a href="data:application/pdf;base64,{encoded}" target="_blank" style="text-decoration: none;">
+                <button style="background-color: #0E3453; color: white; border: none; padding: 10px 20px; text-align: center; text-decoration: none; display: inline-block; font-size: 16px; cursor: pointer; border-radius: 5px;">📄 Ouvrir le guide d'aide</button>
+            </a>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 
 # Associer les pages à leurs fonctions respectives
 functions = {
