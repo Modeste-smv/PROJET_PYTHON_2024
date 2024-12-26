@@ -784,9 +784,33 @@ def sensibilites():
     if df_filtered.empty:
         st.error("Aucune donnée correspondante trouvée. Veuillez ajuster vos sélections.")
         return
+    
+    # Fonction pour récupérer les taux sans risque depuis Yahoo Finance
+    def get_risk_free_rates():
+        tickers = {
+            "13 WEEK TREASURY BILL": "^IRX",
+            "Treasury Yield 5 Years": "^FVX",
+            "CBOE Interest Rate 10 Year T No": "^TNX",
+            "Treasury Yield 30 Years": "^TYX"
+        }
+        rates = {}
+        for name, ticker in tickers.items():
+            data = yf.download(ticker, period="1d", interval="1d")
+            if not data.empty:
+                rates[name] = data["Close"].iloc[-1] / 100  # Convertir en taux décimal
+        return rates
+
+    # Récupérer les taux sans risque
+    risk_free_rates = get_risk_free_rates()
+    if not risk_free_rates:
+        st.error("Impossible de récupérer les taux sans risque depuis Yahoo Finance.")
+        return
+
+    # Sélection du taux sans risque
+    selected_rate = st.selectbox("Sélectionnez un taux sans risque", options=list(risk_free_rates.keys()))
+    r = risk_free_rates[selected_rate]
 
     # Définir les autres paramètres
-    r = st.number_input("Taux sans risque (r, en %)", value=5.0) / 100
     N = st.number_input("Nombre de trajectoires Monte Carlo (N)", value=10000, step=1000)
     M = st.number_input("Nombre de pas dans la simulation (M)", value=50, step=10)
 
