@@ -92,64 +92,9 @@ def monte_carlo_option_price(S, K, T, r, sigma, option_type='C', num_simulations
 
 
 
-class AmericanOptionsLSMC:
-    """Classe pour valoriser les options américaines en utilisant la méthode de Longstaff-Schwartz (2001)."""
-
-    def __init__(self, option_type, S0, strike, T, M, r, div, sigma, simulations):
-        self.option_type = option_type.lower()
-        self.S0 = float(S0)
-        self.strike = float(strike)
-        self.T = float(T)
-        self.M = int(M)
-        self.r = float(r)
-        self.div = float(div)
-        self.sigma = float(sigma)
-        self.simulations = int(simulations)
-
-        if self.option_type not in ['call', 'put']:
-            raise ValueError("Le type d'option doit être 'call' ou 'put'.")
-
-        self.time_unit = self.T / self.M
-        self.discount = np.exp(-self.r * self.time_unit)
-
-    def _generate_price_paths(self, seed=123):
-        np.random.seed(seed)
-        prices = np.zeros((self.M + 1, self.simulations))
-        prices[0, :] = self.S0
-
-        for t in range(1, self.M + 1):
-            brownian = np.random.standard_normal(self.simulations // 2)
-            brownian = np.concatenate((brownian, -brownian))
-            prices[t, :] = prices[t - 1, :] * np.exp(
-                (self.r - self.sigma ** 2 / 2) * self.time_unit + self.sigma * np.sqrt(self.time_unit) * brownian
-            )
-        return prices
-
-    def _calculate_payoffs(self, prices):
-        if self.option_type == 'call':
-            return np.maximum(prices - self.strike, 0)
-        elif self.option_type == 'put':
-            return np.maximum(self.strike - prices, 0)
-
-    def _backward_induction(self, prices, payoffs):
-        values = np.zeros_like(payoffs)
-        values[-1, :] = payoffs[-1, :]
-
-        for t in range(self.M - 1, 0, -1):
-            regression = np.polyfit(prices[t, :], values[t + 1, :] * self.discount, 5)
-            continuation_value = np.polyval(regression, prices[t, :])
-            values[t, :] = np.where(payoffs[t, :] > continuation_value, payoffs[t, :], values[t + 1, :] * self.discount)
-
-        return values[1, :] * self.discount
-
-    def price(self):
-        prices = self._generate_price_paths()
-        payoffs = self._calculate_payoffs(prices)
-        values = self._backward_induction(prices, payoffs)
-        return np.mean(values)
 
 
-
+##################################### PARAMETRES DE MISE EN FORME ET DES STYLES ##############################################
 
 
 st.set_page_config(layout="wide")
@@ -301,6 +246,9 @@ def get_current_page():
 def get_current_page():
     return st.session_state.current_page
 
+
+##################################### Page d'accueil ##############################################
+
 # Définition des fonctions pour chaque page
 def accueil():
     # Titre principal et sous-titre
@@ -333,6 +281,8 @@ def accueil():
         <p style='text-align: justify; color:#333333;'>Nous espérons que <b>OptionLab</b> sera un outil précieux pour vos analyses et décisions.
         </p>
     """, unsafe_allow_html=True)
+
+##################################### CONSULTER LES OPTIONS DISPONIBLES ##############################################
 
 
 def donnees():
@@ -418,7 +368,130 @@ def donnees():
 
 
 
+##################################### PRICING ##############################################
 
+##########################################################################################
+## PART 1 : Definition de la classe pour la methode LSMC sur une option     ##############
+##########################################################################################
+
+class AmericanOptionsLSMC:
+    """Classe pour valoriser les options américaines et calculer les Greeks en utilisant Longstaff-Schwartz (2001)."""
+
+    def __init__(self, option_type, S0, strike, T, M, r, div, sigma, simulations):
+        self.option_type = option_type.lower()
+        self.S0 = float(S0)
+        self.strike = float(strike)
+        self.T = float(T)
+        self.M = int(M)
+        self.r = float(r)
+        self.div = float(div)
+        self.sigma = float(sigma)
+        self.simulations = int(simulations)
+
+        if self.option_type not in ['call', 'put']:
+            raise ValueError("Le type d'option doit être 'call' ou 'put'.")
+
+        self.time_unit = self.T / self.M
+        self.discount = np.exp(-self.r * self.time_unit)
+
+        # Variables pour stocker les trajectoires
+        self.price_paths = None
+        self.payoffs = None
+
+    def _generate_price_paths(self, seed=123):
+        """Génère les trajectoires de prix via Monte Carlo."""
+        np.random.seed(seed)
+        prices = np.zeros((self.M + 1, self.simulations))
+        prices[0, :] = self.S0
+
+        for t in range(1, self.M + 1):
+            brownian = np.random.standard_normal(self.simulations // 2)
+            brownian = np.concatenate((brownian, -brownian))
+            prices[t, :] = prices[t - 1, :] * np.exp(
+                (self.r - self.sigma ** 2 / 2) * self.time_unit + self.sigma * np.sqrt(self.time_unit) * brownian
+            )
+        self.price_paths = prices
+        return prices
+
+    def _calculate_payoffs(self):
+        """Calcule les payoffs selon les trajectoires générées."""
+        if self.price_paths is None:
+            raise ValueError("Les trajectoires de prix doivent être générées avant de calculer les payoffs.")
+
+        if self.option_type == 'call':
+            self.payoffs = np.maximum(self.price_paths - self.strike, 0)
+        elif self.option_type == 'put':
+            self.payoffs = np.maximum(self.strike - self.price_paths, 0)
+        return self.payoffs
+
+    def _backward_induction(self):
+        """Effectue la régression et le retour en arrière pour calculer la valeur."""
+        if self.payoffs is None:
+            raise ValueError("Les payoffs doivent être calculés avant de faire le retour en arrière.")
+
+        values = np.zeros_like(self.payoffs)
+        values[-1, :] = self.payoffs[-1, :]
+
+        for t in range(self.M - 1, 0, -1):
+            regression = np.polyfit(self.price_paths[t, :], values[t + 1, :] * self.discount, 5)
+            continuation_value = np.polyval(regression, self.price_paths[t, :])
+            values[t, :] = np.where(self.payoffs[t, :] > continuation_value, self.payoffs[t, :], values[t + 1, :] * self.discount)
+
+        return values[1, :] * self.discount
+
+    def price(self):
+        """Calcule le prix de l'option."""
+        if self.price_paths is None:
+            self._generate_price_paths()
+        if self.payoffs is None:
+            self._calculate_payoffs()
+        values = self._backward_induction()
+        return np.mean(values)
+
+    # Méthodes pour calculer les Greeks
+    def delta(self, h=0.01):
+        """Calcule Delta via différences finies."""
+        S_up = self.S0 + h
+        S_down = self.S0 - h
+        option_up = AmericanOptionsLSMC(self.option_type, S_up, self.strike, self.T, self.M, self.r, self.div, self.sigma, self.simulations)
+        option_down = AmericanOptionsLSMC(self.option_type, S_down, self.strike, self.T, self.M, self.r, self.div, self.sigma, self.simulations)
+        return (option_up.price() - option_down.price()) / (2 * h)
+
+    def gamma(self, h=0.01):
+        """Calcule Gamma via différences finies."""
+        S_up = self.S0 + h
+        S_down = self.S0 - h
+        option_up = AmericanOptionsLSMC(self.option_type, S_up, self.strike, self.T, self.M, self.r, self.div, self.sigma, self.simulations)
+        option_down = AmericanOptionsLSMC(self.option_type, S_down, self.strike, self.T, self.M, self.r, self.div, self.sigma, self.simulations)
+        option_center = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, self.T, self.M, self.r, self.div, self.sigma, self.simulations)
+        return (option_up.price() - 2 * option_center.price() + option_down.price()) / (h ** 2)
+
+    def vega(self, h=0.01):
+        """Calcule Vega via différences finies."""
+        sigma_up = self.sigma + h
+        sigma_down = self.sigma - h
+        option_up = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, self.T, self.M, self.r, self.div, sigma_up, self.simulations)
+        option_down = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, self.T, self.M, self.r, self.div, sigma_down, self.simulations)
+        return (option_up.price() - option_down.price()) / (2 * h)
+
+    def rho(self, h=0.01):
+        """Calcule Rho via différences finies."""
+        r_up = self.r + h
+        r_down = self.r - h
+        option_up = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, self.T, self.M, r_up, self.div, self.sigma, self.simulations)
+        option_down = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, self.T, self.M, r_down, self.div, self.sigma, self.simulations)
+        return (option_up.price() - option_down.price()) / (2 * h)
+
+    def theta(self, h=1/365):
+        """Calcule Theta via différences finies."""
+        T_up = self.T - h
+        option_up = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, T_up, self.M, self.r, self.div, self.sigma, self.simulations)
+        return (option_up.price() - self.price()) / h
+
+
+##########################################################################################
+## PART 2 : Fonction pour effectuer le pricing a la base des formulaires    ##############
+##########################################################################################
 
 def pricing():
     st.markdown("""<div style='text-align: center;'> <h1 style='color:#0E3453;'>Pricing des Options</h1></div>""", unsafe_allow_html=True)
@@ -657,19 +730,17 @@ def pricing():
                 st.markdown(conseil_html, unsafe_allow_html=True)
 
 
-
-
     else:
         st.warning("Aucune option disponible pour cette date d'expiration.")
 
-##################################### SENSIBILITE ##############################################
+##################################### ANALYSE DES SENSIBILITES ##############################################
+
 def sensibilites():
     st.markdown("""
     <div style='text-align: center;'><h1 style='color:#0E3453;'>Analyse des Sensibilités</h1></div>
     """, unsafe_allow_html=True)
-    st.markdown("<h6 style='margin-top:15px;color:#A75502'>Évaluez les paramètres clés (Greeks) pour une meilleure compréhension de vos options.</h6>",unsafe_allow_html=True)
+    st.markdown("<h6 style='margin-top:15px;color:#A75502'>Évaluez les paramètres clés (Greeks) pour une meilleure compréhension de vos options.</h6>", unsafe_allow_html=True)
 
-    
     # Sélection du ticker
     tickers = data['ticker'].unique()
     selected_ticker = st.selectbox("Sélectionnez un ticker", tickers)
@@ -716,8 +787,8 @@ def sensibilites():
 
     # Définir les autres paramètres
     r = st.number_input("Taux sans risque (r, en %)", value=5.0) / 100
-    N = st.number_input("Nombre de trajectoires Monte Carlo (N)", value=200000, step=1000)
-    M = st.number_input("Nombre de pas dans la simulation (M)", value=200, step=10)
+    N = st.number_input("Nombre de trajectoires Monte Carlo (N)", value=10000, step=1000)
+    M = st.number_input("Nombre de pas dans la simulation (M)", value=50, step=10)
 
     # Paramètres pour le calcul
     S0 = data.loc[data['ticker'] == selected_ticker, 'lastPrice'].iloc[0]
@@ -725,7 +796,19 @@ def sensibilites():
     K = selected_strike
     sigma = df_filtered['impliedVolatility'].iloc[0]
 
-    # Tableau récapitulatif initial
+    # Créer une instance de la classe AmericanOptionsLSMC
+    option = AmericanOptionsLSMC(
+        option_type=option_type.lower(),
+        S0=S0,
+        strike=K,
+        T=T,
+        M=int(M),
+        r=r,
+        div=0.0,  # Supposons un dividende nul
+        sigma=sigma,
+        simulations=int(N)
+    )
+    # Tableau récapitulatif des sensibilités
     greek_data = {
         "Greek": ["Delta", "Gamma", "Vega", "Theta", "Rho"],
         "Rôle": [
@@ -735,66 +818,33 @@ def sensibilites():
             "Sensibilité du prix de l'option au passage du temps.",
             "Sensibilité du prix de l'option à une variation du taux d'intérêt sans risque."
         ],
-        "Estimation": ["-", "-", "-", "-", "-"]  # Placeholder pour les valeurs
+        "Estimation": [
+            "-",
+            "-",
+            "-",
+            "-",
+            "-"
+        ]
     }
     df_greeks = pd.DataFrame(greek_data)
-
-    # Fonction de calcul des sensibilités
-    def calcul_sensibilites(S0, K, T, r, sigma, N, M, option_type="call"):
-        dt = T / M
-        discount = np.exp(-r * T)
-
-        # Simulation Monte Carlo pour le prix de l'option
-        payoffs = []
-        for _ in range(int(N)):
-            Z = np.random.standard_normal(M)
-            S = S0 * np.exp(np.cumsum((r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z))
-            payoff = max(S[-1] - K, 0) if option_type == "call" else max(K - S[-1], 0)
-            payoffs.append(payoff)
-        price = discount * np.mean(payoffs)
-
-        # Calcul des Greeks
-        h = S0 * 0.01  # Incrément pour différences finies
-
-        # Delta
-        price_up = discount * np.mean([max((S0 + h) * np.exp((r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z).sum() - K, 0) for Z in np.random.standard_normal((int(N), M))])
-        price_down = discount * np.mean([max((S0 - h) * np.exp((r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z).sum() - K, 0) for Z in np.random.standard_normal((int(N), M))])
-        delta = (price_up - price_down) / (2 * h)
-
-        # Gamma
-        gamma = (price_up - 2 * price + price_down) / (h ** 2)
-
-        # Vega
-        sigma_up = sigma + 0.01
-        price_vega = discount * np.mean([max(S0 * np.exp((r - 0.5 * sigma_up**2) * dt + sigma_up * np.sqrt(dt) * Z).sum() - K, 0) for Z in np.random.standard_normal((int(N), M))])
-        vega = (price_vega - price) / 0.01
-
-        # Theta
-        T_down = T - (1 / 365)
-        price_theta = discount * np.mean([max(S0 * np.exp((r - 0.5 * sigma**2) * (T_down / M) + sigma * np.sqrt(T_down / M) * Z).sum() - K, 0) for Z in np.random.standard_normal((int(N), M))])
-        theta = -abs((price_theta - price) / (1 / 365))
-
-        # Rho
-        r_up = r + 0.01
-        price_rho = discount * np.mean([max(S0 * np.exp((r_up - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z).sum() - K, 0) for Z in np.random.standard_normal((int(N), M))])
-        rho = (price_rho - price) / 0.01
-
-        return price, delta, gamma, vega, theta, rho
-
     # Calculer les sensibilités
     if st.button("Calculer"):
-        price, delta, gamma, vega, theta, rho = calcul_sensibilites(S0, K, T, r, sigma, int(N), int(M), option_type.lower())
+        delta = option.delta()
+        gamma = option.gamma()
+        vega = option.vega()
+        theta =  option.theta()
+        rho = option.rho()
 
         # Mettre à jour le tableau avec les estimations
         df_greeks["Estimation"] = [f"{delta:.4f}", f"{gamma:.4f}", f"{vega:.4f}", f"{theta:.4f}", f"{rho:.4f}"]
-    # Afficher le tableau à jour (initial ou après calcul)
+    # Afficher le tableau
     styled_df = custom_styling(df_greeks)
     st.markdown(styled_df.to_html(), unsafe_allow_html=True)
 
 
 
 
-############################################# ACTIONS EN TEMPS RÉEL #############################################
+############################################# VISUALISATION EN TEMPS RÉEL #############################################
 
 ##########################################################################################
 ## PART 1 : Fonctions pour Récupérer, Traiter et Créer des Indicateurs Techniques##
