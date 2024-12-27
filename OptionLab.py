@@ -11,8 +11,7 @@ import matplotlib.pyplot as plt
 import plotly.express as px
 import plotly.graph_objects as go
 import ta
-
-
+import base64
 
 
 # Liaison à la base
@@ -1003,21 +1002,43 @@ def documentation():
         **Si vous avez besoin d'aide pour utiliser l'application ou souhaitez en savoir plus sur son fonctionnement sous-jacent, veuillez cliquer ci-dessous.**
         """
     )
-
-    # Bouton pour télécharger un document d'aide
+    # Chargement du fichier PDF
     with open("Documentation_OptionLab.pdf", "rb") as file:
-    # Encodage du fichier PDF en base64
-    encoded = base64.b64encode(file.read()).decode("utf-8")
+        pdf_data = file.read()
+
+    # Encodage Base64
+    pdf_base64 = base64.b64encode(pdf_data).decode("utf-8")
+
+    # Bouton de téléchargement centré
     st.markdown(
         f"""
-        <div style="text-align: center;">
-            <a href="data:application/pdf;base64,{encoded}" target="_blank" style="text-decoration: none;">
-                <button style="background-color: #0E3453; color: white; border: none; padding: 10px 20px; text-align: center; text-decoration: none; display: inline-block; font-size: 16px; cursor: pointer; border-radius: 5px;">📄 Ouvrir le guide d'aide</button>
+        <style>
+        .download-button {{
+            display: flex;
+            justify-content: center;
+        }}
+        .download-button a {{
+            background-color: #0E3453; /* Bleu de l'image */
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            transition: background-color 0.3s;
+        }}
+        .download-button a:hover {{
+            background-color: #092436; /* Une teinte légèrement plus foncée pour le survol */
+        }}
+        </style>
+        <div class="download-button">
+            <a href="data:application/octet-stream;base64,{pdf_base64}" download="Documentation_OptionLab.pdf">
+                Télécharger la documentation
             </a>
         </div>
         """,
         unsafe_allow_html=True
     )
+
 
 
 # Associer les pages à leurs fonctions respectives
