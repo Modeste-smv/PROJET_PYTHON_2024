@@ -481,24 +481,26 @@ class AmericanOptionsLSMC:
     def vega(self, h=0.01):
         """Calcule Vega via différences finies."""
         sigma_up = self.sigma + h
-        sigma_down = self.sigma - h
+        sigma_center = self.sigma
         option_up = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, self.T, self.M, self.r, self.div, sigma_up, self.simulations)
-        option_down = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, self.T, self.M, self.r, self.div, sigma_down, self.simulations)
-        return (option_up.price() - option_down.price()) / (2 * h)
+        option_center = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, self.T, self.M, self.r, self.div, sigma_center, self.simulations)
+        return (option_up.price() - option_center.price()) / (2 * h)
 
     def rho(self, h=0.01):
         """Calcule Rho via différences finies."""
         r_up = self.r + h
-        r_down = self.r - h
+        r_center = self.r
         option_up = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, self.T, self.M, r_up, self.div, self.sigma, self.simulations)
-        option_down = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, self.T, self.M, r_down, self.div, self.sigma, self.simulations)
-        return (option_up.price() - option_down.price()) / (2 * h)
+        option_center = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, self.T, self.M, r_center, self.div, self.sigma, self.simulations)
+        return (option_up.price() - option_center.price()) / (2 * h)
 
     def theta(self, h=1/365):
         """Calcule Theta via différences finies."""
-        T_up = self.T - h
-        option_up = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, T_up, self.M, self.r, self.div, self.sigma, self.simulations)
-        return (option_up.price() - self.price()) / h
+        T_down = self.T - h
+        T_center = self.T
+        option_down = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, T_down, self.M, self.r, self.div, self.sigma, self.simulations)
+        option_center = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, T_center, self.M, self.r, self.div, self.sigma, self.simulations)
+        return (option_down.price() - option_center.price()) / h
 
 
 ##########################################################################################
