@@ -310,7 +310,7 @@ def donnees():
     with col1:
         # Récupérer les tickers uniques
         tickers = data['ticker'].unique()
-        selected_ticker = st.selectbox("Sélectionnez un ticker", options=sorted(tickers))
+        selected_ticker = st.selectbox("Ticker", options=sorted(tickers))
 
     with col2:
         # Sélection du type d'option
