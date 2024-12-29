@@ -11,6 +11,9 @@ import matplotlib.pyplot as plt
 import plotly.express as px
 import plotly.graph_objects as go
 import ta
+import os
+import base64
+from PIL import Image
 
 
 
@@ -272,7 +275,7 @@ def accueil():
     with col1:
         st.write("")
     with col2:
-        st.video('media/video_presentation.mp4')
+        st.video('media/video_intro.mp4')
     with col3:
         st.write("")
 
@@ -982,8 +985,62 @@ def visualisation():
 
 
 def documentation():
-    st.title('❓ Aide')
-    st.write("Documentation et assistance pour l'utilisation de l'application.")
+    st.markdown("""
+    <div style='text-align: center;'> <h1 style='color:#0E3453;'>Documentation</h1></div>
+    """, unsafe_allow_html=True)
+    st.markdown("<h6 style='margin-top:15px;color:#A75502'>Si vous souhaitez en savoir plus sur la conception de l'aplication, veuillez cliquer pour télécharger la documentation.</h6>",unsafe_allow_html=True)
+
+    # Chargement du fichier PDF
+    with open("media/Doc_OptionLab.pdf", "rb") as file:
+        pdf_data = file.read()
+
+    # Encodage Base64
+    pdf_base64 = base64.b64encode(pdf_data).decode("utf-8")
+
+    # Bouton de téléchargement centré
+    st.markdown(
+        f"""
+        <style>
+        .download-button {{
+            display: flex;
+            justify-content: center;
+        }}
+        .download-button a {{
+            background-color: #0E3453; /* Bleu de l'image */
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            transition: background-color 0.3s;
+        }}
+        .download-button a:hover {{
+            background-color: #092436; /* Une teinte légèrement plus foncée pour le survol */
+        }}
+        </style>
+        <div class="download-button">
+            <a href="data:application/octet-stream;base64,{pdf_base64}" download="Documentation_OptionLab.pdf">
+                Télécharger la documentation
+            </a>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    col1, col2, col3 =st.columns([1,4,1])
+    # Dossier contenant les images
+    image_folder = "media/docs"
+    
+    # Liste des fichiers dans le dossier, triée par nom
+    image_files = sorted([f for f in os.listdir(image_folder) if f.endswith('.png') or f.endswith('.jpg')])
+
+    for i, image_file in enumerate(image_files):
+        image_path = os.path.join(image_folder, image_file)
+        image = Image.open(image_path)
+
+        with col2:
+            st.image(image, use_column_width=True)
+
+
 
 # Associer les pages à leurs fonctions respectives
 functions = {
