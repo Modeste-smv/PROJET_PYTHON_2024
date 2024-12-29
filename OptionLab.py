@@ -925,7 +925,7 @@ def documentation():
     st.markdown("<h6 style='margin-top:15px;color:#A75502'>Si vous souhaitez en savoir plus sur la conception de l'aplication, veuillez cliquer pour télécharger la documentation.</h6>",unsafe_allow_html=True)
 
     # Chargement du fichier PDF
-    with open("media/Documentation_OptionLab.pdf", "rb") as file:
+    with open("media/Doc_OptionLab.pdf", "rb") as file:
         pdf_data = file.read()
 
     # Encodage Base64
