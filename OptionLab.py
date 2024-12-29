@@ -25,75 +25,7 @@ data = pd.read_parquet("s3://modestesmv/database.parquet", filesystem=fs)
 data['expiration_date'] = pd.to_datetime(data['expiration_date'], errors='coerce')
 
 
-################################################### FONCTIONS PRÉLIMINAIRES ######################################################
-
-# Simulation de Monte Carlo 
-def monte_carlo_option_price(S, K, T, r, sigma, option_type='C', num_simulations=10000):
-
-    """
-
-    Calcule la valeur théorique d'une option selon la méthode de Monte Carlo.
-
- 
-
-    Paramètres:
-
-    - S : Prix actuel du sous-jacent
-
-    - K : Prix d'exercice (strike price)
-
-    - T : Temps jusqu'à expiration (en années)
-
-    - r : Taux sans risque
-
-    - sigma : Volatilité implicite
-
-    - option_type : 'C' pour Call, 'P' pour Put
-
-    - num_simulations : Nombre de simulations Monte Carlo
-
- 
-
-    Retourne la valeur théorique de l'option calculée via Monte Carlo.
-
-    """
-
-    dt = T / 252  # Nombre de jours de trading par an
-
-    discount_factor = np.exp(-r * T)  # Facteur de décote
-
-   
-
-    # Générer les chemins simulés
-
-    simulated_prices = np.zeros(num_simulations)
-
-    for i in range(num_simulations):
-
-        price_path = S
-
-        for t in range(int(T / dt)):
-
-            price_path *= np.exp((r - 0.5 * sigma ** 2) * dt + sigma * np.sqrt(dt) * np.random.normal())
-
-        simulated_prices[i] = price_path
-
-   
-
-    # Calculer la valeur de l'option
-
-    if option_type == 'C':
-
-        option_values = np.maximum(simulated_prices - K, 0)  # Call option payoff
-
-    elif option_type == 'P':
-
-        option_values = np.maximum(K - simulated_prices, 0)  # Put option payoff
-
-   
-
-    return discount_factor * np.mean(option_values)
-
+################################################### FONCTION PRÉLIMINAIRE ######################################################
 
 # Récupération des taux sans risque des bons du trésor depuis Yahoo Finance
 def get_risk_free_rates():
