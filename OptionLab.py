@@ -320,6 +320,7 @@ class AmericanOptionsLSMC:
     def __init__(self, option_type, S0, strike, T, M, r, div, sigma, simulations):
         self.option_type = option_type.lower()
         self.S0 = float(S0)
+        self.h = 0.01*float(S0)
         self.strike = float(strike)
         self.T = float(T)
         self.M = int(M)
@@ -389,38 +390,38 @@ class AmericanOptionsLSMC:
         return np.mean(values)
 
     # Méthodes pour calculer les Greeks
-    def delta(self, h=0.01):
+    def delta(self):
         """Calcule Delta via différences finies."""
-        S_up = self.S0 + h
-        S_down = self.S0 - h
+        S_up = self.S0 + self.h
+        S_down = self.S0 - self.h
         option_up = AmericanOptionsLSMC(self.option_type, S_up, self.strike, self.T, self.M, self.r, self.div, self.sigma, self.simulations)
         option_down = AmericanOptionsLSMC(self.option_type, S_down, self.strike, self.T, self.M, self.r, self.div, self.sigma, self.simulations)
-        return (option_up.price() - option_down.price()) / (2 * h)
+        return (option_up.price() - option_down.price()) / (2 * self.h)
 
-    def gamma(self, h=0.01):
+    def gamma(self):
         """Calcule Gamma via différences finies."""
-        S_up = self.S0 + h
-        S_down = self.S0 - h
+        S_up = self.S0 + self.h
+        S_down = self.S0 - self.h
         option_up = AmericanOptionsLSMC(self.option_type, S_up, self.strike, self.T, self.M, self.r, self.div, self.sigma, self.simulations)
         option_down = AmericanOptionsLSMC(self.option_type, S_down, self.strike, self.T, self.M, self.r, self.div, self.sigma, self.simulations)
         option_center = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, self.T, self.M, self.r, self.div, self.sigma, self.simulations)
-        return (option_up.price() - 2 * option_center.price() + option_down.price()) / (h ** 2)
+        return (option_up.price() - 2 * option_center.price() + option_down.price()) / (self.h ** 2)
 
-    def vega(self, h=0.01):
+    def vega(self):
         """Calcule Vega via différences finies."""
-        sigma_up = self.sigma + h
+        sigma_up = self.sigma + self.h
         sigma_center = self.sigma
         option_up = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, self.T, self.M, self.r, self.div, sigma_up, self.simulations)
         option_center = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, self.T, self.M, self.r, self.div, sigma_center, self.simulations)
-        return (option_up.price() - option_center.price()) / (2 * h)
+        return (option_up.price() - option_center.price()) / self.h
 
-    def rho(self, h=0.01):
+    def rho(self):
         """Calcule Rho via différences finies."""
-        r_up = self.r + h
+        r_up = self.r + self.h
         r_center = self.r
         option_up = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, self.T, self.M, r_up, self.div, self.sigma, self.simulations)
         option_center = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, self.T, self.M, r_center, self.div, self.sigma, self.simulations)
-        return (option_up.price() - option_center.price()) / (2 * h)
+        return (option_up.price() - option_center.price()) / self.h
 
     def theta(self, h=1/365):
         """Calcule Theta via différences finies."""
