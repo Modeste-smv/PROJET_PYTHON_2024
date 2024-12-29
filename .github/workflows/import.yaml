@@ -3,7 +3,7 @@ name: Data importation
 on:
   # Tous les jours à 6h00 et dans les cas de push sur certaines branches.
   schedule:
-    - cron: '* * * * *'
+    - cron: '00 6 * * *'
   push:
     branches:
       - "main"
@@ -11,8 +11,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 jobs:
   import-data:
