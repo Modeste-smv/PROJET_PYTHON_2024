@@ -24,7 +24,10 @@ data = pd.read_parquet("s3://modestesmv/database.parquet", filesystem=fs)
 # Conversion explicite de la colonne expiration_date en datetime
 data['expiration_date'] = pd.to_datetime(data['expiration_date'], errors='coerce')
 
-# SIMULATION MONTE CARLO 
+
+################################################### FONCTIONS PRÉLIMINAIRES ######################################################
+
+# Simulation de Monte Carlo 
 def monte_carlo_option_price(S, K, T, r, sigma, option_type='C', num_simulations=10000):
 
     """
@@ -92,13 +95,22 @@ def monte_carlo_option_price(S, K, T, r, sigma, option_type='C', num_simulations
     return discount_factor * np.mean(option_values)
 
 
-
-
-
-
+# Récupération des taux sans risque des bons du trésor depuis Yahoo Finance
+def get_risk_free_rates():
+    tickers = {
+        "Bon du trésor américain à 13 semaines": "^IRX",
+        "Bon du trésor américain à 5 ans": "^FVX",
+        "Bon du trésor américain à 10 ans": "^TNX",
+        "Bon du trésor américain à 30 ans": "^TYX"
+    }
+    rates = {}
+    for name, ticker in tickers.items():
+        data = yf.download(ticker, period="1d", interval="1d")
+        if not data.empty:
+            rates[name] = data["Close"].iloc[-1] / 100  # Convertir en taux décimal
+    return rates
 
 ##################################### PARAMETRES DE MISE EN FORME ET DES STYLES ##############################################
-
 
 st.set_page_config(layout="wide")
 # Définir les styles CSS pour la sidebar
@@ -199,14 +211,14 @@ ticker_names = {
 }
 
 def custom_styling(df):
-    # Style for the header
+    # Style pour le header
     header_props = [('background-color', '#0E3453'),  # Blue background
                     ('color', 'white'),               # White text
                     ('border', '1px solid black'),
                     ('font-weight', 'bold'),
                     ('text-align', 'center')]
 
-    # Style for the body
+    # Style pour le corps
     body_props = [('background-color', '#DCE6F1'),  # Light blue background
                   ('color', 'black'),                # Black text
                   ('border', '1px solid black'),
@@ -245,12 +257,9 @@ if st.sidebar.button('📖 Documentation', key='documentation'):
 # Fonction pour obtenir la page actuelle
 def get_current_page():
     return st.session_state.current_page
-# Fonction pour obtenir la page actuelle
-def get_current_page():
-    return st.session_state.current_page
 
 
-##################################### Page d'accueil ##############################################
+##################################################### PAGE D'ACCUEIL #############################################################
 
 # Définition des fonctions pour chaque page
 def accueil():
@@ -285,8 +294,8 @@ def accueil():
         </p>
     """, unsafe_allow_html=True)
 
-##################################### CONSULTER LES OPTIONS DISPONIBLES ##############################################
 
+########################################### CONSULTER LES OPTIONS DISPONIBLES ####################################################
 
 def donnees():
     st.markdown("""
@@ -369,13 +378,9 @@ def donnees():
         st.markdown(styled_df.to_html(), unsafe_allow_html=True)
 
 
+################################################### PRICING DES OPTIONS ##########################################################
 
-
-##################################### PRICING ##############################################
-
-##########################################################################################
-## PART 1 : Definition de la classe pour la methode LSMC sur une option     ##############
-##########################################################################################
+######################### Partie 1 : Definition de la classe pour la methode LSMC sur une option #################################
 
 class AmericanOptionsLSMC:
     """Classe pour valoriser les options américaines et calculer les Greeks en utilisant Longstaff-Schwartz (2001)."""
@@ -472,29 +477,31 @@ class AmericanOptionsLSMC:
     def vega(self, h=0.01):
         """Calcule Vega via différences finies."""
         sigma_up = self.sigma + h
-        sigma_down = self.sigma - h
+        sigma_center = self.sigma
         option_up = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, self.T, self.M, self.r, self.div, sigma_up, self.simulations)
-        option_down = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, self.T, self.M, self.r, self.div, sigma_down, self.simulations)
-        return (option_up.price() - option_down.price()) / (2 * h)
+        option_center = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, self.T, self.M, self.r, self.div, sigma_center, self.simulations)
+        return (option_up.price() - option_center.price()) / (2 * h)
 
     def rho(self, h=0.01):
         """Calcule Rho via différences finies."""
         r_up = self.r + h
-        r_down = self.r - h
+        r_center = self.r
         option_up = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, self.T, self.M, r_up, self.div, self.sigma, self.simulations)
-        option_down = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, self.T, self.M, r_down, self.div, self.sigma, self.simulations)
-        return (option_up.price() - option_down.price()) / (2 * h)
+        option_center = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, self.T, self.M, r_center, self.div, self.sigma, self.simulations)
+        return (option_up.price() - option_center.price()) / (2 * h)
 
     def theta(self, h=1/365):
         """Calcule Theta via différences finies."""
         T_up = self.T - h
+        T_center = self.T
         option_up = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, T_up, self.M, self.r, self.div, self.sigma, self.simulations)
-        return (option_up.price() - self.price()) / h
+        option_center = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, T_center, self.M, self.r, self.div, self.sigma, self.simulations)
+        return (option_up.price() - option_center.price()) / h
 
 
-##########################################################################################
-## PART 2 : Fonction pour effectuer le pricing a la base des formulaires    ##############
-##########################################################################################
+##################################################################################################################################
+############################# Partie 2 : Fonction pour effectuer le pricing a la base des formulaires ############################
+##################################################################################################################################
 
 def pricing():
     st.markdown("""<div style='text-align: center;'> <h1 style='color:#0E3453;'>Pricing des Options</h1></div>""", unsafe_allow_html=True)
@@ -508,7 +515,7 @@ def pricing():
     # Récupérer les symboles uniques disponibles
     symbols_in_db = data['ticker'].unique().tolist()
 
-    # Utiliser un sélecteur unique pour choisir le rôle
+    # Utilisation d'un sélecteur unique pour choisir le rôle
     role = st.radio(
         "Veuillez sélectionner votre rôle :",
         options=["Acheteur", "Vendeur"],
@@ -521,7 +528,7 @@ def pricing():
     if role == "Vendeur":
         # Si c'est un vendeur, on demande les paramètres nécessaires
         
-        # Saisie du symbole
+        # Sélection du ticker
         if symbols_in_db:
             symbol = st.selectbox("Symbole de l'actif", options=symbols_in_db)
         else:
@@ -531,7 +538,7 @@ def pricing():
         # Choix du type d'option
         option_type = st.selectbox("Type d'option :", options=["Call", "Put"])
 
-        # Filtrer les données pour récupérer les expirations disponibles
+        # Filtrer les données pour récupérer les dates d'expirations disponibles
         df_symbol = data[(data['ticker'] == symbol) & (data['optionType'] == option_type)]
         if df_symbol.empty:
             st.warning(f"Aucune donnée disponible pour {symbol} ({option_type}).")
@@ -579,17 +586,16 @@ def pricing():
     
         # Bouton pour calculer la valeur théorique
         if st.button("Calculer la valeur de l'option"):
-            # Récupérer les données pour AAPL
+            # Récupérer les données pour le ticker
             ticker = yf.Ticker(symbol)
-            # Méthode 1 : Récupérer le prix actuel directement
             S0 = ticker.history(period="1d")['Close'].iloc[-1]
             K = selected_row['strike']
             T = (pd.to_datetime(selected_row['expiration_date'], unit='ms') - pd.Timestamp.now()).days / 365.0
-            r = 0.05  # Exemple de taux sans risque
+            r = risk_free_rates['Bon du trésor américain à 5 ans']  # Choix arbitraire parmi les choix de taux sans risque possibles
             sigma = selected_row['impliedVolatility']
             M = 50  # Nombre de pas
             simulations = 10000
-
+            # Calcul du prix théorique de l'option
             american_option = AmericanOptionsLSMC(option_type.lower(), S0, K, T, M, r, 0, sigma, simulations)
             option_price = american_option.price()
 
@@ -616,7 +622,9 @@ def pricing():
             st.markdown(resultat_html, unsafe_allow_html=True)
     
     elif role == "Acheteur":
-        # Partie acheteur
+        # Si c'est un acheteur, on demande les paramètres nécessaires
+
+        # Sélection du ticker
         if symbols_in_db:
             symbol = st.selectbox("Choisissez un symbole d'actif", options=symbols_in_db)
         else:
@@ -626,7 +634,7 @@ def pricing():
         # Choix du type d'option
         option_type = st.selectbox("Type d'option :", options=["Call", "Put"])
 
-        # Filtrer les données pour récupérer les expirations disponibles
+        # Filtrer les données pour récupérer les dates d'expirations disponibles
         df_symbol2 = data[(data['ticker'] == symbol) & (data['optionType'] == option_type)]
         if df_symbol2.empty:
             st.warning(f"Aucune donnée disponible pour {symbol} ({option_type}).")
@@ -669,7 +677,7 @@ def pricing():
                     S0 = yf.Ticker(symbol).history(period="1d")['Close'].iloc[-1]
                     K = row['strike']
                     T = (pd.to_datetime(row['expiration_date']) - pd.Timestamp.now()).days / 365.0
-                    r = 0.05  # Taux sans risque (exemple)
+                    r = risk_free_rates['Bon du trésor américain à 5 ans']  # Choix arbitraire parmi les choix de taux sans risque possibles
                     sigma = row['impliedVolatility']
                     M = 50  # Nombre de pas
                     simulations = 10000
@@ -681,7 +689,7 @@ def pricing():
                 # Création du graphique interactif avec Plotly
                 fig = go.Figure()
 
-                # Tracer les courbes des valeurs théoriques et des derniers prix
+                # Tracer les courbes des valeurs théoriques et des derniers prix en fonction du strike price
                 fig.add_trace(go.Scatter(
                     x=strikes,
                     y=theoretical_values,
@@ -736,7 +744,8 @@ def pricing():
     else:
         st.warning("Aucune option disponible pour cette date d'expiration.")
 
-##################################### ANALYSE DES SENSIBILITES ##############################################
+
+################################################# ANALYSE DES SENSIBILITES #######################################################
 
 def sensibilites():
     st.markdown("""
@@ -751,7 +760,7 @@ def sensibilites():
     # Sélection du type d'option
     option_type = st.selectbox("Type d'option :", options=["Call", "Put"])
 
-    # Filtrer les données pour récupérer les expirations disponibles
+    # Filtrer les données pour récupérer les dates d'expirations disponibles
     df_symbol = data[(data['ticker'] == selected_ticker) & (data['optionType'] == option_type)]
     if df_symbol.empty:
         st.warning(f"Aucune donnée disponible pour {selected_ticker} ({option_type}).")
@@ -789,7 +798,7 @@ def sensibilites():
         return
 
     # Définir les autres paramètres
-    r = st.number_input("Taux sans risque (r, en %)", value=5.0) / 100
+    r = risk_free_rates['Bon du trésor américain à 5 ans']  # Choix arbitraire parmi les choix de taux sans risque possibles
     N = st.number_input("Nombre de trajectoires Monte Carlo (N)", value=10000, step=1000)
     M = st.number_input("Nombre de pas dans la simulation (M)", value=50, step=10)
 
@@ -845,16 +854,11 @@ def sensibilites():
     st.markdown(styled_df.to_html(), unsafe_allow_html=True)
 
 
+################################################# VISUALISATION EN TEMPS RÉEL ###################################################
 
-
-############################################# VISUALISATION EN TEMPS RÉEL #############################################
-
-##########################################################################################
-## PART 1 : Fonctions pour Récupérer, Traiter et Créer des Indicateurs Techniques##
-##########################################################################################
+######################### Partie 1 : Fonctions pour Récupérer, Traiter et Créer des Indicateurs Techniques ######################
 
 # Récupérer les données boursières
-
 def recuperer_donnees_boursieres(ticker, periode, intervalle):
     date_fin = datetime.now()
     if periode == '1wk':
@@ -866,8 +870,7 @@ def recuperer_donnees_boursieres(ticker, periode, intervalle):
         data.columns = data.columns.get_level_values(0)
     return data
 
-# Traiter les données boursières
-
+# Traitement des données boursières
 def traiter_donnees(data):
     if data.index.tzinfo is None:
         data.index = data.index.tz_localize('UTC')
@@ -876,8 +879,7 @@ def traiter_donnees(data):
     data.rename(columns={'Date': 'Datetime'}, inplace=True)
     return data
 
-# Calculer les métriques principales
-
+# Calcul des métriques principales
 def calculer_metriques(data):
     dernier_cours = data['Close'].iloc[-1]
     cours_precedent = data['Close'].iloc[0]
@@ -889,18 +891,15 @@ def calculer_metriques(data):
     return dernier_cours, variation, variation_pourcentage, haut, bas, volume
 
 # Ajout des indicateurs 
-
 def ajouter_indicateurs_techniques(data):
     data['MMS_20'] = ta.trend.sma_indicator(data["Close"], window=20)
     data['MME_20'] = ta.trend.ema_indicator(data["Close"], window=20)
     return data
 
-##############################################################################################
-#################### PART 2: Création de la Mise en Page de Visualisation ###################
-##############################################################################################
+
+###################################### PART 2: Création de la Mise en Page de Visualisation #####################################
 
 # Fonction principale pour l'onglet visualisation
-
 def visualisation():
     st.markdown("""
     <div style='text-align: center;'> <h1 style='color:#0E3453;'>Visualisation des Marchés Financiers</h1></div>
@@ -939,8 +938,7 @@ def visualisation():
             data = ajouter_indicateurs_techniques(data)
             dernier_cours, variation, variation_pourcentage, haut, bas, volume = calculer_metriques(data)
 
-            # Afficher les métriques principales
-
+            # Affichage des métriques principales
             col1, col2, col3, col4 = st.columns(4)
             col1.metric(label=f"{ticker} Dernier Prix", value=f"{dernier_cours:.2f} USD", delta=f"{variation:.2f} ({variation_pourcentage:.2f}%)")
             col2.metric("Haut", f"{haut:.2f} USD")
@@ -958,7 +956,7 @@ def visualisation():
             else:
                 fig = px.line(data, x='Datetime', y='Close')
 
-            # visualisation des indicateurs 
+            # Visualisation des indicateurs 
             for indicateur in indicateurs:
                 if indicateur == 'MMS 20':
                     fig.add_trace(go.Scatter(x=data['Datetime'], y=data['MMS_20'], name='MMS 20'))
@@ -972,7 +970,7 @@ def visualisation():
                               height=600)
             st.plotly_chart(fig, use_container_width=True)
 
-            # Display historical data and technical indicators
+            # Affichage des données historiques et des indicateurs
             st.subheader('Données Historiques')
             st.dataframe(data[['Datetime', 'Open', 'High', 'Low', 'Close', 'Volume']])
 
@@ -991,7 +989,7 @@ def documentation():
     st.markdown("<h6 style='margin-top:15px;color:#A75502'>Si vous souhaitez en savoir plus sur la conception de l'aplication, veuillez cliquer pour télécharger la documentation.</h6>",unsafe_allow_html=True)
 
     # Chargement du fichier PDF
-    with open("media/Doc_OptionLab.pdf", "rb") as file:
+    with open("media/Documentation_OptionLab.pdf", "rb") as file:
         pdf_data = file.read()
 
     # Encodage Base64
