@@ -591,6 +591,7 @@ def pricing():
             S0 = ticker.history(period="1d")['Close'].iloc[-1]
             K = selected_row['strike']
             T = (pd.to_datetime(selected_row['expiration_date'], unit='ms') - pd.Timestamp.now()).days / 365.0
+            risk_free_rates = get_risk_free_rates() # Récupération des taux sans risque
             r = risk_free_rates['Bon du trésor américain à 5 ans']  # Choix arbitraire parmi les choix de taux sans risque possibles
             sigma = selected_row['impliedVolatility']
             M = 50  # Nombre de pas
@@ -677,6 +678,7 @@ def pricing():
                     S0 = yf.Ticker(symbol).history(period="1d")['Close'].iloc[-1]
                     K = row['strike']
                     T = (pd.to_datetime(row['expiration_date']) - pd.Timestamp.now()).days / 365.0
+                    risk_free_rates = get_risk_free_rates() # Récupération des taux sans risque
                     r = risk_free_rates['Bon du trésor américain à 5 ans']  # Choix arbitraire parmi les choix de taux sans risque possibles
                     sigma = row['impliedVolatility']
                     M = 50  # Nombre de pas
@@ -798,6 +800,7 @@ def sensibilites():
         return
 
     # Définir les autres paramètres
+    risk_free_rates = get_risk_free_rates() # Récupération des taux sans risque
     r = risk_free_rates['Bon du trésor américain à 5 ans']  # Choix arbitraire parmi les choix de taux sans risque possibles
     N = st.number_input("Nombre de trajectoires Monte Carlo (N)", value=10000, step=1000)
     M = st.number_input("Nombre de pas dans la simulation (M)", value=50, step=10)
