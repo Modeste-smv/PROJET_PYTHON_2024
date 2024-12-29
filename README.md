@@ -6,14 +6,14 @@ Membres : Modeste, Enzo &amp; Lina
 ## Étape 1 : Lancer le fichier contenant toutes les données nécessaires
 Ouvrez un nouveau terminal et utilisez la commande suivante : 
 
-```bash
+```
 cd PROJET_PYTHON_2024
 ```
 
 ## Étape 2 : Préparer votre environnement
 Le fichier `requirements.txt` contient tous les prérequis nécessaires au bon fonctionnement du programme. Pour s'assurer que ceux-ci sont bien installés, utilisez la commande suivante (dans le terminal)
 
-```bash
+```
 python -m pip install -r requirements.txt
 ```
 
@@ -24,7 +24,7 @@ Vous pourrez voir le détail des calculs et les méthodes utilisées pour nos an
 ## Étape 4 : Obtenir l'accès à la base de données
 Exécutez la commande suivante dans le terminal :
 
-```bash
+```
 export AWS_ACCESS_KEY_ID=SA-PYTHON
 export AWS_SECRET_ACCESS_KEY=UILHK?LU89UM0.OKK.J?UO651
 export AWS_SESSION_TOKEN=
@@ -33,7 +33,7 @@ export AWS_SESSION_TOKEN=
 ## Étape 5 : Lancer l'application Streamlit
 Exécutez la commande suivante dans le terminal :
 
-```bash
+```
 streamlit run OptionLab.py
 ```
 
