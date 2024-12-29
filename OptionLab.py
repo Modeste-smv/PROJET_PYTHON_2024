@@ -501,6 +501,7 @@ class AmericanOptionsLSMC:
         option_down = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, T_down, self.M, self.r, self.div, self.sigma, self.simulations)
         option_center = AmericanOptionsLSMC(self.option_type, self.S0, self.strike, T_center, self.M, self.r, self.div, self.sigma, self.simulations)
         return (option_down.price() - option_center.price()) / h
+        
 
 
 ##########################################################################################
